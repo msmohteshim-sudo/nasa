@@ -1,10 +1,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// ALTRON — Temporal Action Recognizer (HAR)
-// Multi-frame sequence classifier for procedural human actions in space experiments.
-// Tracks temporal state progression across frame sequences (approach -> contact -> move -> secure).
+// ALTRON — Temporal Activity Recognition Engine (HAR)
+// Multi-frame temporal sequence classifier for space mission astronaut activities.
+// Classifies high-level activities (CONDUCTING_EXPERIMENT, USING_TOOL, PICKING_OBJECT, etc.)
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { ActionResult, InteractionResult, PersonMotion } from '@/types/vision';
+import type { ActionResult, InteractionResult, PersonMotion, ActivityType } from '@/types/vision';
 
 interface FrameObservationHistory {
   frameId: number;
@@ -30,66 +30,85 @@ export class ActionRecognizer {
       motions,
     });
 
-    // Maintain 30-frame temporal sliding window (~1-2 seconds)
+    // Maintain 30-frame sliding window (~1 second)
     if (this.history.length > 30) this.history.shift();
 
     const actions: ActionResult[] = [];
 
-    // Analyze primary interaction over temporal window
     const activeInteraction = interactions[0];
     const primaryMotion = motions[0];
 
     if (activeInteraction) {
       const objLabel = activeInteraction.objectLabel;
+      const state = activeInteraction.interactionState || 'HOLDING';
+
       let recognizedActionName = 'RETRIEVE';
+      let activityType: ActivityType = 'CONDUCTING_EXPERIMENT';
       let confidence = activeInteraction.confidence;
 
-      if (objLabel === 'OBSERVATION CHAMBER' || objLabel === 'SAMPLE CONTAINER') {
-        if (activeInteraction.type === 'MOVING' || activeInteraction.type === 'HOLDING') {
+      if (state === 'APPROACHING') {
+        recognizedActionName = 'REACHING';
+        activityType = 'REACHING';
+      } else if (state === 'GRABBING') {
+        recognizedActionName = 'GRASP_SAMPLE';
+        activityType = 'PICKING_OBJECT';
+      } else if (state === 'MOVING') {
+        recognizedActionName = 'TRANSFER_CONTAINER';
+        activityType = 'MOVING_OBJECT';
+      } else if (state === 'RELEASING' || state === 'RELEASED') {
+        recognizedActionName = 'PLACE_IN_CHAMBER';
+        activityType = 'PLACING_OBJECT';
+      } else if (state === 'HOLDING') {
+        if (objLabel === 'FLUIDIC CONTROLLER' || objLabel === 'EXPERIMENT TOOL') {
+          recognizedActionName = 'INJECT_SOLUTION';
+          activityType = 'USING_TOOL';
+        } else if (objLabel === 'OBSERVATION CHAMBER' || objLabel === 'EXPERIMENT MODULE') {
           recognizedActionName = 'ASEPTIC_PREPARE';
+          activityType = 'CONDUCTING_EXPERIMENT';
         } else {
-          recognizedActionName = 'POSITION';
+          recognizedActionName = 'HOLD_SAMPLE';
+          activityType = 'HOLDING_OBJECT';
         }
-      } else if (objLabel === 'EXPERIMENT MODULE') {
-        if (activeInteraction.type === 'MOVING') {
-          recognizedActionName = 'SYRINGE_INSERT';
-        } else if (activeInteraction.type === 'POSITIONING' || activeInteraction.type === 'HOLDING') {
-          recognizedActionName = 'SECURE';
-        } else {
-          recognizedActionName = 'TRANSFER';
-        }
-      } else if (objLabel === 'FLUIDIC CONTROLLER' || objLabel === 'EXPERIMENT TOOL') {
-        recognizedActionName = 'INJECT_SOLUTION';
-      } else if (objLabel === 'WORKSTATION FIXTURE') {
-        recognizedActionName = 'SEAL_CONTAINER';
       }
 
-      // If expected action matches observation context, refine score
       if (expectedActionCode) {
         if (
           expectedActionCode.toUpperCase().includes(recognizedActionName) ||
           recognizedActionName.includes(expectedActionCode.toUpperCase())
         ) {
-          confidence = Math.min(97, confidence + 5);
+          confidence = Math.min(98, confidence + 5);
         }
       }
 
       actions.push({
         action: recognizedActionName,
+        activityType,
         confidence,
         timestamp: nowHHMMSS,
         personId: activeInteraction.personId,
         relatedObject: objLabel,
         frameSequenceLength: this.history.length,
       });
-    } else if (primaryMotion && primaryMotion.overallLevel !== 'NO_MOVEMENT') {
-      actions.push({
-        action: 'OBSERVING_WORKSTATION',
-        confidence: 82,
-        timestamp: nowHHMMSS,
-        personId: primaryMotion.personId,
-        frameSequenceLength: this.history.length,
-      });
+    } else if (primaryMotion) {
+      if (primaryMotion.overallLevel === 'HIGH_MOVEMENT') {
+        actions.push({
+          action: 'CREW_MOBILITY',
+          activityType: 'WALKING',
+          confidence: 85,
+          timestamp: nowHHMMSS,
+          personId: primaryMotion.personId,
+          frameSequenceLength: this.history.length,
+        });
+      } else if (primaryMotion.overallLevel === 'MODERATE_MOVEMENT' || primaryMotion.overallLevel === 'LOW_MOVEMENT') {
+        actions.push({
+          action: 'OBSERVING_WORKSTATION',
+          activityType: 'IDLE',
+          confidence: 82,
+          timestamp: nowHHMMSS,
+          personId: primaryMotion.personId,
+          frameSequenceLength: this.history.length,
+        });
+      }
     }
 
     return actions;

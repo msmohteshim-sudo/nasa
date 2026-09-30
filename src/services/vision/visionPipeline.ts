@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // ALTRON — Real-Time Vision & AI Perception Pipeline Orchestrator
-// Coordinates frame capture, multi-model inference, performance adaptation,
-// and result broadcasting to ALTRON UI & Procedure Engine.
+// Coordinates camera feed, multi-model TF.js inference, multi-object tracking,
+// spatial zone reasoning, task verification engine, anomaly detection, and event telemetry.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type {
@@ -21,6 +21,12 @@ import { tracker } from './detectors/tracker';
 import { motionAnalyzer } from './detectors/motionAnalyzer';
 import { interactionAnalyzer } from './detectors/interactionAnalyzer';
 import { actionRecognizer } from './detectors/actionRecognizer';
+
+import { zoneEngine } from './zoneEngine';
+import { taskEngine } from '@/services/mission/taskEngine';
+import { anomalyEngine } from '@/services/mission/anomalyEngine';
+import { eventLogService } from '@/services/mission/eventLog';
+import { demoScenarioService } from '@/services/mission/demoScenarioService';
 
 type VisionCallback = (result: VisionResult) => void;
 
@@ -48,12 +54,8 @@ export class VisionPipeline {
     this.scratchCanvas.height = 480;
   }
 
-  /**
-   * Set target vision mode: STANDARD, BALANCED, MAXIMUM
-   */
   setMode(mode: VisionMode) {
     this.mode = mode;
-    console.log(`[VisionPipeline] Vision Mode set to: ${mode}`);
   }
 
   getMode(): VisionMode {
@@ -69,9 +71,6 @@ export class VisionPipeline {
     return () => this.listeners.delete(cb);
   }
 
-  /**
-   * Start processing loop against live video element stream
-   */
   async start(videoEl: HTMLVideoElement): Promise<void> {
     if (this.running) return;
     this.videoElement = videoEl;
@@ -85,9 +84,6 @@ export class VisionPipeline {
     this.runLoop();
   }
 
-  /**
-   * Stop processing loop
-   */
   stop(): void {
     this.running = false;
     if (this.animFrameId !== null) {
@@ -97,11 +93,10 @@ export class VisionPipeline {
   }
 
   private runLoop = () => {
-    if (!this.running || !this.videoElement) return;
+    if (!this.running) return;
 
     this.processFrame();
 
-    // Schedule next frame loop based on performance mode
     const intervalMs = this.mode === 'STANDARD' ? 120 : this.mode === 'BALANCED' ? 66 : 40;
     setTimeout(() => {
       if (this.running) {
@@ -111,10 +106,18 @@ export class VisionPipeline {
   };
 
   private async processFrame(): Promise<void> {
+    this.frameId++;
+
+    // Check if interactive demo scenario is active
+    if (demoScenarioService.isDemoActive()) {
+      const demoResult = demoScenarioService.generateScenarioFrame(this.frameId);
+      this.listeners.forEach((listener) => listener(demoResult));
+      return;
+    }
+
     if (!this.videoElement || this.videoElement.readyState < 2) return;
 
     const startTime = performance.now();
-    this.frameId++;
     cameraService.tickFrame();
 
     const videoW = this.videoElement.videoWidth || 640;
@@ -123,9 +126,9 @@ export class VisionPipeline {
     const nowMs = performance.now();
     const nowHHMMSS = new Date().toLocaleTimeString('en-GB', { hour12: false });
 
-    // 1. Person Detection & Tracking
+    // 1. Person Detection & Multi-Subject Tracking
     const rawPersons = await personDetector.detectPersons(this.videoElement, this.scratchCanvas);
-    const trackedPersons = tracker.updateTracks(rawPersons, this.frameId);
+    const trackedPersons = tracker.updatePersonTracks(rawPersons, this.frameId);
 
     // 2. Pose Estimation
     const poses = await poseDetector.detectPoses(this.videoElement, trackedPersons);
@@ -136,16 +139,31 @@ export class VisionPipeline {
     // 4. Head & Face Orientation
     const faces = headDetector.analyzeFaces(poses);
 
-    // 5. Object Detection
-    const objects = await objectDetector.detectObjects(this.videoElement, this.scratchCanvas, hands);
+    // 5. Multi-Object Detection & Object Spatial Tracking
+    const rawObjects = await objectDetector.detectObjects(this.videoElement, this.scratchCanvas, hands);
+    const trackedObjects = tracker.updateObjectTracks(rawObjects, this.frameId);
 
     // 6. Motion & Velocity Analysis
     const motions = motionAnalyzer.analyzeMotion(poses, this.frameId, nowMs);
 
-    // 7. Human-Object Interaction
-    const interactions = interactionAnalyzer.analyzeInteractions(hands, objects, motions);
+    // 7. Spatial Zone Reasoning Engine
+    const zoneResult = zoneEngine.processZones(trackedPersons, trackedObjects, videoW, videoH);
 
-    // 8. Action Recognition (HAR)
+    // Broadcast Zone Entry/Exit Events to Telemetry Log
+    zoneResult.events.forEach((evt) => {
+      eventLogService.addEvent({
+        type: 'ZONE',
+        severity: 'INFO',
+        summary: `${evt.entityType} ${evt.entityId} ${evt.type === 'ENTER' ? 'entered' : 'exited'} ${evt.zoneName}`,
+        zoneId: evt.zoneId,
+        entityId: evt.entityId,
+      });
+    });
+
+    // 8. Hand-Object Interaction State Machine
+    const interactions = interactionAnalyzer.analyzeInteractions(hands, zoneResult.updatedObjects, motions);
+
+    // 9. Action Recognition (HAR)
     const actions = actionRecognizer.recognizeAction(
       interactions,
       motions,
@@ -154,7 +172,47 @@ export class VisionPipeline {
       this.expectedActionCode
     );
 
-    // Measure Inference FPS & Latency
+    // 10. Mission Task Verification Engine
+    const taskEval = taskEngine.evaluateFrame(
+      zoneResult.updatedPersons,
+      zoneResult.updatedObjects,
+      interactions,
+      actions,
+      zoneResult.zoneOccupancies
+    );
+
+    if (taskEval.stepCompletedEvent) {
+      eventLogService.addEvent({
+        type: 'TASK',
+        severity: 'INFO',
+        summary: `Completed Step ${taskEval.stepCompletedEvent.step.stepNumber}: ${taskEval.stepCompletedEvent.step.title}`,
+        details: taskEval.stepCompletedEvent.step.description,
+      });
+    }
+
+    // 11. Anomaly Detection Engine
+    const anomalies = anomalyEngine.evaluateAnomalies(
+      zoneResult.updatedPersons,
+      zoneResult.updatedObjects,
+      interactions,
+      zoneResult.zoneOccupancies,
+      zoneEngine.getZones(),
+      taskEval.updatedTask
+    );
+
+    // Log newly discovered critical anomalies
+    anomalies.forEach((anom) => {
+      eventLogService.addEvent({
+        type: 'ANOMALY',
+        severity: anom.severity === 'CRITICAL' ? 'CRITICAL' : 'WARNING',
+        summary: `[${anom.type}] ${anom.title}`,
+        details: anom.message,
+        zoneId: anom.locationZone,
+        entityId: anom.entityId,
+      });
+    });
+
+    // Performance Metrics
     const endTime = performance.now();
     this.lastFrameProcessingMs = Math.round(endTime - startTime);
     this.lastLatencyMs = Math.round(endTime - startTime + 12);
@@ -174,15 +232,15 @@ export class VisionPipeline {
 
     const performanceMetrics: VisionPerformanceMetrics = {
       cameraFPS: cameraService.getCameraFps(),
-      inferenceFPS: this.currentInferenceFps || 18,
+      inferenceFPS: this.currentInferenceFps || 20,
       latencyMs: this.lastLatencyMs,
       frameProcessingMs: this.lastFrameProcessingMs,
       activeMode: this.mode,
       modelStatus: {
-        personDetector: trackedPersons.length > 0 || modelStatus.cocoLoaded ? 'ACTIVE' : 'OFFLINE',
+        personDetector: zoneResult.updatedPersons.length > 0 || modelStatus.cocoLoaded ? 'ACTIVE' : 'OFFLINE',
         poseEstimator: poses.length > 0 || modelStatus.poseLoaded ? 'ACTIVE' : 'OFFLINE',
         handDetector: hands.length > 0 ? 'ACTIVE' : 'OFFLINE',
-        objectDetector: objects.length > 0 || modelStatus.cocoLoaded ? 'ACTIVE' : 'OFFLINE',
+        objectDetector: zoneResult.updatedObjects.length > 0 || modelStatus.cocoLoaded ? 'ACTIVE' : 'OFFLINE',
         tracker: 'ACTIVE',
         motionAnalyzer: 'ACTIVE',
         interactionAnalyzer: 'ACTIVE',
@@ -190,20 +248,23 @@ export class VisionPipeline {
       },
     };
 
-    const secondaryPersonPresent = trackedPersons.length > 1;
+    const secondaryPersonPresent = zoneResult.updatedPersons.length > 1;
 
     const resultPacket: VisionResult = {
       timestamp: Date.now(),
       formattedTime: nowHHMMSS,
       frameId: this.frameId,
-      persons: trackedPersons,
+      persons: zoneResult.updatedPersons,
       poses,
       hands,
       faces,
-      objects,
+      objects: zoneResult.updatedObjects,
       motions,
       interactions,
       actions,
+      zones: zoneResult.zoneOccupancies,
+      activeTask: taskEval.updatedTask,
+      anomalies: anomalyEngine.getActiveAnomalies(),
       camera: cameraCaps,
       performance: performanceMetrics,
       secondaryPersonPresent,

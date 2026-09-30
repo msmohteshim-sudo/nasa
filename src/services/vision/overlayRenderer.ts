@@ -1,295 +1,300 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// ALTRON — Camera Overlay Renderer
-// Draws real-time overlay graphics (bounding boxes, pose skeleton, hand landmarks,
-// object regions, motion vectors, interaction links) directly onto the camera canvas.
+// ALTRON — Space Control Vision Canvas Overlay Renderer
+// Renders rich space-grade visual telemetry on HTML5 Canvas:
+// - Spatial zone boundaries & occupancy badges
+// - Multi-person skeletons & pose keypoints
+// - Multi-object bounding boxes, persistent track IDs & trajectory trails
+// - Hand-object interaction state connection lines ([APPROACHING], [HOLDING], [MOVING])
+// - Real-time Task HUD & Anomaly Warning Overlay
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { VisionResult, VisionOverlaySettings } from '@/types/vision';
-
-// Skeleton joint connection pairs for 17 COCO landmarks
-const SKELETON_CONNECTIONS: [string, string][] = [
-  ['nose', 'left_eye'], ['nose', 'right_eye'],
-  ['left_eye', 'left_ear'], ['right_eye', 'right_ear'],
-  ['left_shoulder', 'right_shoulder'],
-  ['left_shoulder', 'left_elbow'], ['right_shoulder', 'right_elbow'],
-  ['left_elbow', 'left_wrist'], ['right_elbow', 'right_wrist'],
-  ['left_shoulder', 'left_hip'], ['right_shoulder', 'right_hip'],
-  ['left_hip', 'right_hip'],
-  ['left_hip', 'left_knee'], ['right_hip', 'right_knee'],
-  ['left_knee', 'left_ankle'], ['right_knee', 'right_ankle'],
-];
+import { DEFAULT_OVERLAY_SETTINGS } from '@/config/missionConfig';
+import { zoneEngine } from './zoneEngine';
 
 export class OverlayRenderer {
-  renderOverlay(
-    ctx: CanvasRenderingContext2D,
+  render(
+    canvas: HTMLCanvasElement,
     result: VisionResult,
-    settings: VisionOverlaySettings,
-    canvasW: number,
-    canvasH: number
+    settings: VisionOverlaySettings = DEFAULT_OVERLAY_SETTINGS
   ): void {
-    ctx.clearRect(0, 0, canvasW, canvasH);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-    // 1. Draw Region of Interest (ROI) workspace boundary if enabled
-    if (settings.showROI) {
-      this.drawROI(ctx, canvasW, canvasH);
+    const width = canvas.width;
+    const height = canvas.height;
+
+    ctx.clearRect(0, 0, width, height);
+
+    // 1. Render Spatial Zones
+    if (settings.showZones) {
+      this.renderZones(ctx, width, height, result);
     }
 
-    // 2. Draw Object Bounding Boxes
+    // 2. Render Object Trajectories & Bounding Boxes
     if (settings.showObjects) {
-      result.objects.forEach((obj) => {
-        this.drawObjectBox(ctx, obj);
-      });
+      this.renderObjects(ctx, result, settings.showTrajectories);
     }
 
-    // 3. Draw Person Bounding Boxes
-    if (settings.showPersonBoxes) {
-      result.persons.forEach((person) => {
-        this.drawPersonBox(ctx, person);
-      });
-    }
+    // 3. Render Person Skeletons & Bounding Boxes
+    this.renderPersons(ctx, result, settings);
 
-    // 4. Draw Pose Skeleton & Landmarks
-    if (settings.showPoseSkeleton) {
-      result.poses.forEach((pose) => {
-        this.drawSkeleton(ctx, pose);
-      });
-    }
-
-    // 5. Draw Hand Landmarks & Boxes
-    if (settings.showHands) {
-      result.hands.forEach((hand) => {
-        this.drawHand(ctx, hand);
-      });
-    }
-
-    // 6. Draw Motion Vectors
-    if (settings.showMotionVectors) {
-      result.motions.forEach((motion) => {
-        this.drawMotionVectors(ctx, motion, result.poses);
-      });
-    }
-
-    // 7. Draw Interaction Lines & Badges
+    // 4. Render Hand-Object Interaction Connection Lines
     if (settings.showInteractions) {
-      result.interactions.forEach((inter) => {
-        this.drawInteraction(ctx, inter, result.hands, result.objects);
-      });
+      this.renderInteractions(ctx, result);
     }
 
-    // 8. Draw Secondary Person Warning overlay if > 1 person present
-    if (result.secondaryPersonPresent) {
-      this.drawSecondaryPersonWarning(ctx, canvasW);
+    // 5. Render Mission Task HUD & Anomaly Highlights
+    if (settings.showTaskHUD) {
+      this.renderMissionHUD(ctx, width, height, result);
     }
   }
 
-  private drawROI(ctx: CanvasRenderingContext2D, w: number, h: number) {
-    const rx = w * 0.15;
-    const ry = h * 0.35;
-    const rw = w * 0.70;
-    const rh = h * 0.60;
-
-    ctx.save();
-    ctx.strokeStyle = 'rgba(0, 102, 204, 0.4)';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([6, 4]);
-    ctx.strokeRect(rx, ry, rw, rh);
-
-    ctx.fillStyle = '#0066CC';
-    ctx.font = '10px monospace';
-    ctx.fillText('EXPERIMENT WORKSPACE (ROI)', rx + 8, ry + 16);
-    ctx.restore();
-  }
-
-  private drawPersonBox(ctx: CanvasRenderingContext2D, person: import('@/types/vision').PersonDetection) {
-    const { x, y, width, height } = person.box;
-
-    ctx.save();
-    ctx.strokeStyle = person.isPrimary ? '#00E676' : '#FF9100'; // Emerald for primary operator, amber for secondary
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x, y, width, height);
-
-    // Header badge
-    const badgeText = `${person.id} • ${person.confidence}%`;
-    ctx.fillStyle = person.isPrimary ? '#002244' : '#5D4037';
-    ctx.fillRect(x, Math.max(0, y - 24), Math.max(140, ctx.measureText(badgeText).width + 16), 24);
-
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 11px system-ui, sans-serif';
-    ctx.fillText(badgeText, x + 8, Math.max(16, y - 8));
-
-    // Corner brackets
-    const bracketLen = 14;
-    ctx.strokeStyle = '#FFFFFF';
-    ctx.lineWidth = 3;
-    // Top-Left
-    ctx.beginPath(); ctx.moveTo(x, y + bracketLen); ctx.lineTo(x, y); ctx.lineTo(x + bracketLen, y); ctx.stroke();
-    // Top-Right
-    ctx.beginPath(); ctx.moveTo(x + width - bracketLen, y); ctx.lineTo(x + width, y); ctx.lineTo(x + width, y + bracketLen); ctx.stroke();
-    // Bottom-Left
-    ctx.beginPath(); ctx.moveTo(x, y + height - bracketLen); ctx.lineTo(x, y + height); ctx.lineTo(x + bracketLen, y + height); ctx.stroke();
-    // Bottom-Right
-    ctx.beginPath(); ctx.moveTo(x + width - bracketLen, y + height); ctx.lineTo(x + width, y + height); ctx.lineTo(x + width, y + height - bracketLen); ctx.stroke();
-
-    ctx.restore();
-  }
-
-  private drawSkeleton(ctx: CanvasRenderingContext2D, pose: import('@/types/vision').PoseLandmarks) {
-    const lmsMap = new Map<string, import('@/types/vision').Landmark>();
-    pose.landmarks.forEach((l) => lmsMap.set(l.name, l));
-
-    ctx.save();
-    // Skeleton Connection Lines
-    ctx.strokeStyle = '#00E5FF';
-    ctx.lineWidth = 2.5;
-
-    SKELETON_CONNECTIONS.forEach(([p1Name, p2Name]) => {
-      const p1 = lmsMap.get(p1Name);
-      const p2 = lmsMap.get(p2Name);
-      if (p1 && p2 && p1.score > 0.3 && p2.score > 0.3) {
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.stroke();
-      }
-    });
-
-    // Landmark Joint Dots
-    pose.landmarks.forEach((l) => {
-      if (l.score > 0.3) {
-        ctx.fillStyle = l.name.includes('eye') || l.name === 'nose' ? '#FFEA00' : '#00E676';
-        ctx.beginPath();
-        ctx.arc(l.x, l.y, 4.5, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
-    });
-    ctx.restore();
-  }
-
-  private drawHand(ctx: CanvasRenderingContext2D, hand: import('@/types/vision').HandDetection) {
-    const { x, y, width, height } = hand.box;
-
-    ctx.save();
-    ctx.strokeStyle = '#E040FB';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([3, 3]);
-    ctx.strokeRect(x, y, width, height);
-
-    ctx.fillStyle = '#4A148C';
-    ctx.fillRect(x, Math.max(0, y - 18), 85, 18);
-
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 10px sans-serif';
-    ctx.fillText(`${hand.hand} HAND`, x + 6, Math.max(12, y - 5));
-
-    // Finger Dots
-    hand.landmarks.forEach((l) => {
-      ctx.fillStyle = '#E040FB';
-      ctx.beginPath();
-      ctx.arc(l.x, l.y, 3, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
-    ctx.restore();
-  }
-
-  private drawObjectBox(ctx: CanvasRenderingContext2D, obj: import('@/types/vision').ObjectDetection) {
-    const { x, y, width, height } = obj.box;
-
-    ctx.save();
-    ctx.strokeStyle = '#FF6D00';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x, y, width, height);
-
-    const text = `${obj.label} ${obj.confidence}%`;
-    ctx.fillStyle = '#E65100';
-    ctx.fillRect(x, Math.max(0, y - 20), Math.max(120, ctx.measureText(text).width + 12), 20);
-
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 10px sans-serif';
-    ctx.fillText(text, x + 6, Math.max(14, y - 6));
-    ctx.restore();
-  }
-
-  private drawMotionVectors(
+  private renderZones(
     ctx: CanvasRenderingContext2D,
-    motion: import('@/types/vision').PersonMotion,
-    poses: import('@/types/vision').PoseLandmarks[]
-  ) {
-    const pose = poses.find((p) => p.personId === motion.personId);
-    if (!pose) return;
+    width: number,
+    height: number,
+    result: VisionResult
+  ): void {
+    const zones = zoneEngine.getZones();
+    const occupancies = result.zones || [];
 
-    ctx.save();
-    motion.regions.forEach((r) => {
-      if (r.level === 'HIGH_MOVEMENT' || r.level === 'MODERATE_MOVEMENT') {
-        const matchingLms = pose.landmarks.filter((l) =>
-          r.partName.toLowerCase().includes(l.name.split('_')[1] || l.name)
-        );
+    zones.forEach((zone) => {
+      const zx = zone.normalizedBox.x * width;
+      const zy = zone.normalizedBox.y * height;
+      const zw = zone.normalizedBox.width * width;
+      const zh = zone.normalizedBox.height * height;
 
-        matchingLms.forEach((lm) => {
-          ctx.strokeStyle = '#FF1744';
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(lm.x, lm.y);
-          ctx.lineTo(lm.x + (r.magnitude > 50 ? 18 : 10), lm.y - 12);
-          ctx.stroke();
-        });
-      }
-    });
-    ctx.restore();
-  }
+      const occ = occupancies.find((o) => o.zoneId === zone.id);
+      const occupantCount = occ?.occupantCount || 0;
 
-  private drawInteraction(
-    ctx: CanvasRenderingContext2D,
-    inter: import('@/types/vision').InteractionResult,
-    hands: import('@/types/vision').HandDetection[],
-    objects: import('@/types/vision').ObjectDetection[]
-  ) {
-    const hand = hands.find((h) => h.hand === inter.hand);
-    const obj = objects.find((o) => o.id === inter.objectId);
+      // Fill translucent background
+      ctx.fillStyle = this.hexToRgba(zone.color, occupantCount > 0 ? 0.12 : 0.05);
+      ctx.fillRect(zx, zy, zw, zh);
 
-    if (hand && obj) {
-      const hCx = hand.box.x + hand.box.width / 2;
-      const hCy = hand.box.y + hand.box.height / 2;
-      const oCx = obj.box.x + obj.box.width / 2;
-      const oCy = obj.box.y + obj.box.height / 2;
+      // Border stroke
+      ctx.strokeStyle = zone.color;
+      ctx.lineWidth = occupantCount > 0 ? 2 : 1;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(zx, zy, zw, zh);
+      ctx.setLineDash([]);
 
-      ctx.save();
-      ctx.strokeStyle = '#7C4DFF';
-      ctx.lineWidth = 2.5;
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(hCx, hCy);
-      ctx.lineTo(oCx, oCy);
-      ctx.stroke();
-
-      // Interaction Badge at midpoint
-      const midX = (hCx + oCx) / 2;
-      const midY = (hCy + oCy) / 2;
-      const badgeText = `${inter.type}: ${inter.objectLabel} (${inter.confidence}%)`;
-
-      ctx.fillStyle = '#311B92';
-      ctx.fillRect(midX - 70, midY - 12, 140, 24);
+      // Label badge
+      ctx.fillStyle = zone.color;
+      ctx.fillRect(zx, zy, Math.min(180, zw), 20);
 
       ctx.fillStyle = '#FFFFFF';
-      ctx.font = 'bold 10px sans-serif';
-      ctx.fillText(badgeText, midX - 64, midY + 4);
-      ctx.restore();
+      ctx.font = 'bold 10px monospace';
+      ctx.fillText(`${zone.name.toUpperCase()} [${occupantCount}]`, zx + 6, zy + 14);
+    });
+  }
+
+  private renderObjects(
+    ctx: CanvasRenderingContext2D,
+    result: VisionResult,
+    showTrajectories: boolean
+  ): void {
+    result.objects.forEach((obj) => {
+      const { x, y, width, height } = obj.box;
+
+      // Trajectory trail
+      if (showTrajectories && obj.trajectory && obj.trajectory.length > 1) {
+        ctx.strokeStyle = '#38BDF8'; // Sky blue
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        obj.trajectory.forEach((pt, i) => {
+          if (i === 0) ctx.moveTo(pt.x, pt.y);
+          else ctx.lineTo(pt.x, pt.y);
+        });
+        ctx.stroke();
+      }
+
+      // Box
+      const color = obj.isSimulated ? '#F59E0B' : '#06B6D4'; // Amber for simulated, Cyan for detected
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, width, height);
+
+      // Label background
+      const labelText = `${obj.trackingId || 'OBJ'} | ${obj.label} ${obj.confidence}%${obj.isSimulated ? ' (SIM)' : ''}`;
+      ctx.font = 'bold 11px Inter, sans-serif';
+      const textWidth = ctx.measureText(labelText).width;
+
+      ctx.fillStyle = color;
+      ctx.fillRect(x, Math.max(0, y - 20), textWidth + 12, 20);
+
+      ctx.fillStyle = '#000000';
+      ctx.fillText(labelText, x + 6, Math.max(14, y - 6));
+    });
+  }
+
+  private renderPersons(
+    ctx: CanvasRenderingContext2D,
+    result: VisionResult,
+    settings: VisionOverlaySettings
+  ): void {
+    // Person Box & Trajectory
+    if (settings.showPersonBoxes) {
+      result.persons.forEach((person) => {
+        const { x, y, width, height } = person.box;
+        ctx.strokeStyle = '#10B981'; // Emerald green
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, width, height);
+
+        const personLabel = `${person.id} | ASTRONAUT ${person.confidence}%`;
+        ctx.font = 'bold 11px Inter, sans-serif';
+        const tw = ctx.measureText(personLabel).width;
+
+        ctx.fillStyle = '#10B981';
+        ctx.fillRect(x, Math.max(0, y - 20), tw + 12, 20);
+        ctx.fillStyle = '#000000';
+        ctx.fillText(personLabel, x + 6, Math.max(14, y - 6));
+      });
+    }
+
+    // Pose Skeletons
+    if (settings.showPoseSkeleton) {
+      result.poses.forEach((pose) => {
+        const keypoints = pose.landmarks;
+
+        // Draw connections
+        const connections = [
+          [5, 6], [5, 7], [7, 9], [6, 8], [8, 10], // Arms
+          [5, 11], [6, 12], [11, 12], // Torso
+          [11, 13], [13, 15], [12, 14], [14, 16] // Legs
+        ];
+
+        ctx.strokeStyle = '#A855F7'; // Purple skeleton
+        ctx.lineWidth = 2;
+
+        connections.forEach(([i1, i2]) => {
+          const p1 = keypoints[i1];
+          const p2 = keypoints[i2];
+          if (p1 && p2 && p1.score > 0.3 && p2.score > 0.3) {
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.stroke();
+          }
+        });
+
+        // Keypoints
+        keypoints.forEach((kp) => {
+          if (kp.score > 0.3) {
+            ctx.fillStyle = '#EC4899';
+            ctx.beginPath();
+            ctx.arc(kp.x, kp.y, 4, 0, 2 * Math.PI);
+            ctx.fill();
+          }
+        });
+      });
     }
   }
 
-  private drawSecondaryPersonWarning(ctx: CanvasRenderingContext2D, canvasW: number) {
-    ctx.save();
-    ctx.fillStyle = '#D50000';
-    ctx.fillRect(canvasW - 210, 10, 200, 26);
+  private renderInteractions(ctx: CanvasRenderingContext2D, result: VisionResult): void {
+    result.interactions.forEach((inter) => {
+      const hand = result.hands.find((h) => h.personId === inter.personId && h.hand === inter.hand);
+      const obj = result.objects.find((o) => o.id === inter.objectId);
 
-    ctx.fillStyle = '#FFFFFF';
-    ctx.font = 'bold 11px monospace';
-    ctx.fillText('⚠ SECONDARY PERSON PRESENT', canvasW - 200, 27);
-    ctx.restore();
+      if (hand && obj) {
+        const hCx = hand.box.x + hand.box.width / 2;
+        const hCy = hand.box.y + hand.box.height / 2;
+        const oCx = obj.box.x + obj.box.width / 2;
+        const oCy = obj.box.y + obj.box.height / 2;
+
+        // Dotted connection line
+        ctx.strokeStyle = inter.interactionState === 'MOVING' ? '#EF4444' : '#F59E0B';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(hCx, hCy);
+        ctx.lineTo(oCx, oCy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Badge at midpoint
+        const midX = (hCx + oCx) / 2;
+        const midY = (hCy + oCy) / 2;
+
+        const stateLabel = `[${inter.interactionState || inter.type}] ${inter.spatialDistance}px`;
+        ctx.font = 'bold 10px monospace';
+        const tw = ctx.measureText(stateLabel).width;
+
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.fillRect(midX - tw / 2 - 4, midY - 10, tw + 8, 16);
+
+        ctx.fillStyle = '#F59E0B';
+        ctx.fillText(stateLabel, midX - tw / 2, midY + 2);
+      }
+    });
+  }
+
+  private renderMissionHUD(
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    result: VisionResult
+  ): void {
+    // Top-Right Task HUD
+    if (result.activeTask) {
+      const task = result.activeTask;
+      const currentStep = task.steps[task.currentStepIndex];
+
+      const hudW = 240;
+      const hudH = 75;
+      const hudX = width - hudW - 12;
+      const hudY = 12;
+
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+      ctx.fillRect(hudX, hudY, hudW, hudH);
+      ctx.strokeStyle = '#3B82F6';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(hudX, hudY, hudW, hudH);
+
+      ctx.fillStyle = '#60A5FA';
+      ctx.font = 'bold 10px monospace';
+      ctx.fillText(`PROCEDURE ENGINE: ${task.status}`, hudX + 10, hudY + 18);
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 11px Inter, sans-serif';
+      const truncatedTitle = task.name.length > 28 ? task.name.substring(0, 26) + '...' : task.name;
+      ctx.fillText(truncatedTitle, hudX + 10, hudY + 34);
+
+      if (currentStep) {
+        ctx.fillStyle = '#9CA3AF';
+        ctx.font = '10px Inter, sans-serif';
+        ctx.fillText(`STEP ${currentStep.stepNumber}: ${currentStep.title}`, hudX + 10, hudY + 50);
+
+        // Step Progress Bar
+        ctx.fillStyle = '#1E293B';
+        ctx.fillRect(hudX + 10, hudY + 56, hudW - 20, 6);
+
+        ctx.fillStyle = '#10B981';
+        ctx.fillRect(hudX + 10, hudY + 56, ((hudW - 20) * currentStep.progress) / 100, 6);
+      }
+    }
+
+    // Active Anomalies Banner at Bottom Left
+    if (result.anomalies && result.anomalies.length > 0) {
+      const anomaly = result.anomalies[0];
+      const bannerX = 12;
+      const bannerY = height - 40;
+
+      ctx.fillStyle = anomaly.severity === 'CRITICAL' ? 'rgba(220, 38, 38, 0.9)' : 'rgba(217, 119, 6, 0.9)';
+      ctx.fillRect(bannerX, bannerY, 340, 28);
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 11px Inter, sans-serif';
+      ctx.fillText(`⚠️ ALERT: ${anomaly.title}`, bannerX + 8, bannerY + 18);
+    }
+  }
+
+  private hexToRgba(hex: string, alpha: number): string {
+    const cleanHex = hex.replace('#', '');
+    const r = parseInt(cleanHex.substring(0, 2), 16) || 0;
+    const g = parseInt(cleanHex.substring(2, 4), 16) || 0;
+    const b = parseInt(cleanHex.substring(4, 6), 16) || 0;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   }
 }
 
