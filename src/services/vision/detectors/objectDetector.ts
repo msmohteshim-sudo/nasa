@@ -1,13 +1,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// ALTRON — Space Experiment Object Detector
-// Detects space experiment hardware objects visible in webcam frame.
-// COCO-SSD object classes + Canvas spatial-segmentation for experiment fixtures.
+// ALTRON — Space Experiment & General Object Detector
+// Multi-class object detection using TF.js COCO-SSD (lite_mobilenet_v2).
+// Detects all objects in front of webcam with expanded space-mapped terminology
+// and fallback workspace spatial fixtures.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ObjectDetection, BoundingBox } from '@/types/vision';
 import { tfjsLoader } from './tfjsLoader';
 
-// Mapping of standard COCO labels to Space Experiment terminology
+// Mapping of COCO labels to Space Experiment terminology
 const COCO_SPACE_MAP: Record<string, string> = {
   bottle: 'SAMPLE CONTAINER',
   cup: 'OBSERVATION CHAMBER',
@@ -18,6 +19,16 @@ const COCO_SPACE_MAP: Record<string, string> = {
   scissors: 'EXPERIMENT TOOL',
   mouse: 'FLUIDIC CONTROLLER',
   keyboard: 'WORKSTATION FIXTURE',
+  chair: 'OPERATOR SEAT',
+  backpack: 'EQUIPMENT BAG',
+  handbag: 'SAMPLE POUCH',
+  suitcase: 'CARGO MODULE',
+  remote: 'CONTROL TRANSCEIVER',
+  clock: 'MISSION TIMER',
+  tv: 'MONITOR DISPLAY',
+  bowl: 'CONTAINMENT DISH',
+  vase: 'SAMPLE RECEPTACLE',
+  umbrella: 'SUN SHIELD',
 };
 
 export class ObjectDetector {
@@ -36,16 +47,17 @@ export class ObjectDetector {
     const { cocoModel } = tfjsLoader.getModels();
     const objects: ObjectDetection[] = [];
 
-    // 1. Run COCO-SSD detection
+    // 1. Run COCO-SSD detection with low threshold (0.15) to detect EVERYTHING in front of camera
     if (cocoModel) {
       try {
-        const predictions = await cocoModel.detect(video, 10, 0.20);
+        const predictions = await cocoModel.detect(video, 20, 0.15);
         const objPreds = predictions.filter((p) => p.class !== 'person');
 
         objPreds.forEach((pred, idx) => {
           const [px, py, pw, ph] = pred.bbox;
-          const mappedLabel = COCO_SPACE_MAP[pred.class.toLowerCase()] || pred.class.toUpperCase();
-          const score = Math.round((pred.score || 0.85) * 100);
+          const classLower = pred.class.toLowerCase();
+          const mappedLabel = COCO_SPACE_MAP[classLower] || pred.class.toUpperCase();
+          const score = Math.round((pred.score || 0.80) * 100);
 
           objects.push({
             id: `obj-${idx + 1}`,
@@ -57,7 +69,7 @@ export class ObjectDetector {
               width: Math.round(pw),
               height: Math.round(ph),
             },
-            trackingId: `OBJ-${idx + 1}`,
+            trackingId: `OBJ-${String(idx + 1).padStart(2, '0')}`,
           });
         });
       } catch (err) {
@@ -65,7 +77,7 @@ export class ObjectDetector {
       }
     }
 
-    // 2. Fallback / Workspace Fixture spatial detection if objects array is small
+    // 2. Fallback / Workspace Fixture spatial detection if fewer than 3 objects detected
     if (objects.length < 3) {
       const workspaceObjects = this.detectWorkspaceFixtures(width, height, hands);
       workspaceObjects.forEach((wo) => {
@@ -85,7 +97,7 @@ export class ObjectDetector {
   ): ObjectDetection[] {
     const results: ObjectDetection[] = [];
 
-    // Primary Experiment Module region (center-bottom of workspace)
+    // Primary Experiment Module region
     const modBox: BoundingBox = {
       x: Math.round(frameW * 0.32),
       y: Math.round(frameH * 0.45),
@@ -93,7 +105,6 @@ export class ObjectDetector {
       height: Math.round(frameH * 0.38),
     };
 
-    // Calculate score based on hand proximity to module area
     let proxBonus = 0;
     if (hands.length > 0) {
       const hand = hands[0].box;
@@ -110,6 +121,7 @@ export class ObjectDetector {
       confidence: Math.min(98, 92 + proxBonus),
       box: modBox,
       trackingId: 'MOD-01',
+      isSimulated: true,
     });
 
     results.push({
@@ -123,6 +135,7 @@ export class ObjectDetector {
         height: Math.round(frameH * 0.22),
       },
       trackingId: 'CHAM-01',
+      isSimulated: true,
     });
 
     results.push({
@@ -136,6 +149,7 @@ export class ObjectDetector {
         height: Math.round(frameH * 0.20),
       },
       trackingId: 'IMG-01',
+      isSimulated: true,
     });
 
     results.push({
@@ -149,6 +163,7 @@ export class ObjectDetector {
         height: Math.round(frameH * 0.25),
       },
       trackingId: 'FIX-01',
+      isSimulated: true,
     });
 
     return results;
