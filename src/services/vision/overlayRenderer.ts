@@ -1,6 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // ALTRON — Space Control Vision Canvas Overlay Renderer
 // Renders rich space-grade visual telemetry on HTML5 Canvas:
+// - Live video frame composition for unified video + AI overlay recording
 // - Spatial zone boundaries & occupancy badges
 // - Multi-person skeletons & pose keypoints
 // - Multi-object bounding boxes, persistent track IDs & trajectory trails
@@ -16,7 +17,8 @@ export class OverlayRenderer {
   render(
     canvas: HTMLCanvasElement,
     result: VisionResult,
-    settings: VisionOverlaySettings = DEFAULT_OVERLAY_SETTINGS
+    settings: VisionOverlaySettings = DEFAULT_OVERLAY_SETTINGS,
+    videoElement?: HTMLVideoElement | null
   ): void {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -25,6 +27,15 @@ export class OverlayRenderer {
     const height = canvas.height;
 
     ctx.clearRect(0, 0, width, height);
+
+    // Composite live video frame onto canvas if available (allows full video + overlay recording)
+    if (videoElement && videoElement.readyState >= 2) {
+      try {
+        ctx.drawImage(videoElement, 0, 0, width, height);
+      } catch (e) {
+        // Fallback if video draw fails
+      }
+    }
 
     // 1. Render Spatial Zones
     if (settings.showZones) {

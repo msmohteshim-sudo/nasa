@@ -1,8 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // ALTRON — Real-Time Vision & Space Activity Intelligence Monitoring Dashboard
-// Light theme matching exact UI specification with real TF.js inference,
-// multi-person tracking, pose estimation, hand landmarks, multi-object detection,
-// spatial zones, procedure verification engine, and anomaly feeds.
+// Features session video recording with AI perception overlays & PC export button,
+// light-themed UI, multi-object tracking, pose estimation, spatial zones, procedure verification engine.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -26,6 +25,9 @@ import {
   ListOrdered,
   Flame,
   RotateCcw,
+  Video,
+  Download,
+  Disc,
 } from 'lucide-react';
 import { useSession } from '@/context/SessionContext';
 import { CANONICAL_EXPERIMENT } from '@/data/canonicalExperiment';
@@ -35,6 +37,7 @@ import { overlayRenderer } from '@/services/vision/overlayRenderer';
 import { demoScenarioService, DEMO_SCENARIOS } from '@/services/mission/demoScenarioService';
 import { eventLogService } from '@/services/mission/eventLog';
 import { anomalyEngine } from '@/services/mission/anomalyEngine';
+import { recordingService } from '@/services/vision/recordingService';
 import type { VisionMode, MissionEvent } from '@/types/vision';
 
 function padTwo(n: number) {
@@ -73,6 +76,12 @@ export const MonitorPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'ZONES' | 'ANOMALIES' | 'TELEMETRY'>('OVERVIEW');
   const [eventLogs, setEventLogs] = useState<MissionEvent[]>([]);
 
+  // Recording State
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [recordingSec, setRecordingSec] = useState<number>(0);
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   // Subscribe to Telemetry Event Log feed
   useEffect(() => {
     setEventLogs(eventLogService.getEvents());
@@ -81,6 +90,39 @@ export const MonitorPage: React.FC = () => {
     });
     return () => unsubscribe();
   }, []);
+
+  // ── Session Video Recording Handlers ──────────────────────────────────────
+
+  const handleStartRecording = () => {
+    if (!canvasRef.current) return;
+    const success = recordingService.startRecording(canvasRef.current);
+    if (success) {
+      setIsRecording(true);
+      setRecordingSec(0);
+      setRecordedBlob(null);
+
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSec((prev) => prev + 1);
+      }, 1000);
+    }
+  };
+
+  const handleStopRecording = async () => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    const blob = await recordingService.stopRecording();
+    setIsRecording(false);
+    if (blob) {
+      setRecordedBlob(blob);
+    }
+  };
+
+  const handleDownloadRecording = () => {
+    recordingService.downloadRecording(recordedBlob);
+  };
 
   // ── Camera & Vision Pipeline Control ──────────────────────────────────────
 
@@ -102,10 +144,13 @@ export const MonitorPage: React.FC = () => {
   }, [setCameraActive]);
 
   const stopCamera = useCallback(() => {
+    if (isRecording) {
+      handleStopRecording();
+    }
     visionPipeline.stop();
     cameraService.stopCamera();
     setCameraActive(false);
-  }, [setCameraActive]);
+  }, [setCameraActive, isRecording]);
 
   const handleSelectDemo = (scenarioId: string) => {
     if (scenarioId === '') {
@@ -129,6 +174,7 @@ export const MonitorPage: React.FC = () => {
     return () => {
       stopCamera();
       demoScenarioService.stopScenario();
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
     };
   }, [stopCamera]);
 
@@ -142,7 +188,7 @@ export const MonitorPage: React.FC = () => {
       canvas.height = 480;
     }
 
-    overlayRenderer.render(canvas, latestVisionResult, overlaySettings);
+    overlayRenderer.render(canvas, latestVisionResult, overlaySettings, videoRef.current);
   }, [latestVisionResult, overlaySettings]);
 
   // Derived Vision Variables
@@ -288,6 +334,39 @@ export const MonitorPage: React.FC = () => {
                   {mode}
                 </button>
               ))}
+            </div>
+
+            {/* Session Video Recording Controls */}
+            <div className="flex items-center gap-2 border-l border-gray-200 pl-3">
+              {!isRecording ? (
+                <button
+                  onClick={handleStartRecording}
+                  disabled={!session.cameraActive && !activeDemo}
+                  className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded font-mono text-[11px] font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Disc className="w-3.5 h-3.5 text-rose-600" />
+                  <span>RECORD SESSION</span>
+                </button>
+              ) : (
+                <button
+                  onClick={handleStopRecording}
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded font-mono text-[11px] font-bold flex items-center gap-1.5 transition-colors animate-pulse shadow-xs"
+                >
+                  <Square className="w-3 h-3 fill-white" />
+                  <span>STOP REC ({formatElapsed(recordingSec)})</span>
+                </button>
+              )}
+
+              {/* Download / Save Recording to PC Button */}
+              {recordedBlob && (
+                <button
+                  onClick={handleDownloadRecording}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-mono text-[11px] font-bold flex items-center gap-1.5 transition-colors shadow-xs"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>💾 SAVE SESSION TO PC (.webm)</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -465,6 +544,14 @@ export const MonitorPage: React.FC = () => {
                   ref={canvasRef}
                   className={`absolute inset-0 w-full h-full pointer-events-none ${session.cameraActive || activeDemo ? 'block' : 'hidden'}`}
                 />
+
+                {/* Active Recording Overlay Badge */}
+                {isRecording && (
+                  <div className="absolute top-3 left-3 bg-rose-600/90 text-white text-[11px] font-mono font-bold px-2.5 py-1 rounded flex items-center gap-1.5 animate-pulse shadow-md z-20">
+                    <span className="w-2 h-2 rounded-full bg-white animate-ping" />
+                    <span>REC {formatElapsed(recordingSec)}</span>
+                  </div>
+                )}
 
                 {!session.cameraActive && !activeDemo && (
                   <div className="text-center p-6 space-y-3">
@@ -818,8 +905,8 @@ export const MonitorPage: React.FC = () => {
                   <span className="font-bold text-emerald-600">ACTIVE</span>
                 </div>
                 <div className="p-1.5 bg-slate-50 rounded border border-gray-200 flex justify-between">
-                  <span className="text-gray-500">Temporal HAR:</span>
-                  <span className="font-bold text-emerald-600">ACTIVE</span>
+                  <span className="text-gray-500">Session Recorder:</span>
+                  <span className="font-bold text-emerald-600">{isRecording ? 'RECORDING...' : recordedBlob ? 'READY TO SAVE' : 'STANDBY'}</span>
                 </div>
               </div>
             </div>
