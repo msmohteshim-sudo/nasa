@@ -1,0 +1,186 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-navy-950: #020B18;
+    --color-navy-900: #04111f;
+    --color-navy-800: #061729;
+    --color-aero-500: #1a6fc4;
+    --color-aero-400: #2589e8;
+    --color-saffron-400: #f97316;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background-color: #020B18;
+    color: #f1f5f9;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  }
+}
+
+@layer components {
+  /* ── ISRO-inspired institutional section header ── */
+  .section-header {
+    @apply text-xs font-semibold tracking-[0.3em] uppercase text-aero-300 mb-2;
+  }
+
+  .section-title {
+    @apply text-2xl md:text-3xl font-bold text-white leading-tight tracking-tight;
+  }
+
+  .section-rule {
+    @apply w-12 h-0.5 bg-aero-500 my-4;
+  }
+
+  /* ── Institutional card ── */
+  .altron-card {
+    @apply bg-[#061729] border border-[#1153a0]/20 rounded-lg shadow-card 
+           hover:border-[#1153a0]/40 hover:shadow-card-hover transition-all duration-200;
+  }
+
+  /* ── Status badge variants ── */
+  .badge-verified {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider
+           bg-emerald-500/10 text-emerald-400 border border-emerald-500/30;
+  }
+  .badge-pending {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider
+           bg-aero-500/10 text-aero-300 border border-aero-500/30;
+  }
+  .badge-warning {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider
+           bg-amber-500/10 text-amber-400 border border-amber-500/30;
+  }
+  .badge-deviation {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider
+           bg-rose-500/10 text-rose-400 border border-rose-500/30;
+  }
+  .badge-simulation {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider
+           bg-slate-700/60 text-slate-300 border border-slate-600/40;
+  }
+
+  /* ── Primary CTA button ── */
+  .btn-primary {
+    @apply px-5 py-2.5 bg-aero-500 hover:bg-aero-400 text-white font-semibold text-sm 
+           rounded-sm tracking-wider transition-all shadow-aero hover:shadow-aero-lg;
+  }
+
+  .btn-secondary {
+    @apply px-5 py-2.5 border border-aero-500/50 text-aero-300 hover:border-aero-400 
+           hover:text-aero-200 font-semibold text-sm rounded-sm tracking-wider transition-all;
+  }
+
+  /* ── ISRO-style horizontal rule accent ── */
+  .accent-rule {
+    @apply h-px w-full bg-gradient-to-r from-transparent via-aero-500/50 to-transparent my-12;
+  }
+
+  /* ── Pipeline node ── */
+  .pipeline-node {
+    @apply flex flex-col items-center gap-2 text-center;
+  }
+
+  .pipeline-node-circle {
+    @apply w-12 h-12 rounded-full border-2 border-aero-500/50 bg-navy-800 
+           flex items-center justify-center text-aero-300 font-bold text-sm font-mono
+           shadow-aero;
+  }
+
+  /* ── Top navigation (ISRO-style) ── */
+  .top-nav-link {
+    @apply text-[12px] font-medium tracking-widest text-slate-300 hover:text-white 
+           transition-colors relative uppercase;
+  }
+
+  .top-nav-link.active::after {
+    content: '';
+    @apply absolute bottom-[-4px] left-0 right-0 h-[2px] bg-aero-400;
+  }
+}
+
+/* ── Custom scrollbars ── */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #04111f;
+}
+::-webkit-scrollbar-thumb {
+  background: #1153a0;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2589e8;
+}
+
+/* ── Animated status dot ── */
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.9); }
+}
+.status-live {
+  animation: status-pulse 2s ease-in-out infinite;
+}
+
+/* ── ISRO-style top utility bar pattern ── */
+.isro-utility-bar {
+  background: linear-gradient(90deg, #04111f 0%, #061729 50%, #04111f 100%);
+  border-bottom: 1px solid rgba(17, 83, 160, 0.35);
+}
+
+/* ── Mission card hover lift ── */
+.mission-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.mission-card:hover {
+  transform: translateY(-2px);
+}
+
+/* ── Bounding box overlays ── */
+.detection-box {
+  animation: detection-flash 2.5s ease-in-out infinite;
+}
+@keyframes detection-flash {
+  0%, 100% { border-color: rgba(37, 137, 232, 0.8); }
+  50% { border-color: rgba(37, 137, 232, 0.4); }
+}
+
+/* ── Pipeline connector line ── */
+.pipeline-line {
+  width: 2px;
+  height: 24px;
+  background: linear-gradient(to bottom, #1153a0, #2589e8);
+  margin: 0 auto;
+}
+
+/* ── Section fade-in ── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up {
+  animation: fadeInUp 0.5s ease-out forwards;
+}
+
+/* ── Flash bar marquee ── */
+@keyframes marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* ── Institutional page body ── */
+.institutional-page {
+  background-color: #ffffff;
+  color: #1a1a1a;
+}
