@@ -1,5 +1,6 @@
 import React from 'react';
 import { NavLink, Link } from 'react-router-dom';
+import { AltronLogo } from '@/components/AltronLogo';
 import {
   LayoutDashboard,
   FlaskConical,
@@ -38,13 +39,11 @@ export const Sidebar: React.FC = () => {
       <div>
         {/* Brand Header */}
         <div className="h-[64px] px-5 flex items-center gap-3 border-b border-gray-200 bg-white">
-          <Link to="/" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded bg-[#002244] flex items-center justify-center text-white font-bold text-sm tracking-wider shadow-xs">
-              A
-            </div>
+          <Link to="/" className="flex items-center gap-2.5 group">
+            <AltronLogo size={36} className="w-9 h-9 shrink-0 drop-shadow-[0_2px_8px_rgba(26,111,196,0.3)]" />
             <div>
-              <div className="text-sm font-bold text-[#002244] tracking-tight leading-none">ALTRON</div>
-              <div className="text-[10px] text-gray-500 font-mono mt-0.5">Procedural AI</div>
+              <div className="text-sm font-black text-[#002244] tracking-[0.2em] leading-none uppercase">ALTRON</div>
+              <div className="text-[9px] text-[#1a6fc4] font-bold tracking-[0.16em] uppercase mt-0.5">AI Procedural Intelligence</div>
             </div>
           </Link>
         </div>

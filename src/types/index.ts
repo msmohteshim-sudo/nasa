@@ -107,3 +107,6 @@ export interface PlatformSettings {
   showBoundingBoxes: boolean;
   boundingColor: string;
 }
+
+export * from './temporalHAR';
+

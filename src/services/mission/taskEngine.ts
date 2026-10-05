@@ -21,7 +21,6 @@ export class TaskEngine {
   private availableTasks: MissionTask[] = JSON.parse(JSON.stringify(PREDEFINED_MISSION_TASKS));
   private stepStartMs: number = Date.now();
   private taskStartMs: number = Date.now();
-  private isRunning: boolean = false;
 
   constructor() {
     this.resetTask();
@@ -45,7 +44,6 @@ export class TaskEngine {
   }
 
   startTask(): void {
-    this.isRunning = true;
     this.activeTask.status = 'IN_PROGRESS';
     this.taskStartMs = Date.now();
     this.stepStartMs = Date.now();
@@ -55,7 +53,6 @@ export class TaskEngine {
   }
 
   pauseTask(): void {
-    this.isRunning = false;
     this.activeTask.status = 'PAUSED';
   }
 
@@ -77,8 +74,8 @@ export class TaskEngine {
    * Evaluate vision pipeline packet and update procedure step verification state
    */
   evaluateFrame(
-    persons: PersonDetection[],
-    objects: ObjectDetection[],
+    _persons: PersonDetection[],
+    _objects: ObjectDetection[],
     interactions: InteractionResult[],
     actions: ActionResult[],
     zones: ZoneOccupancy[]

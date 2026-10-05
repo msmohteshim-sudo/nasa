@@ -3,7 +3,9 @@
 // AI Human Activity Recognition for On-board BAS Experiments
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type StepStatus = 'pending' | 'active' | 'completed' | 'skipped' | 'wrong';
+import type { TemporalHARPrediction, PredictionStability } from './temporalHAR';
+
+export type StepStatus = 'pending' | 'active' | 'completed' | 'skipped' | 'wrong' | 'ambiguous';
 
 export type SessionStatus = 'idle' | 'active' | 'paused' | 'completed' | 'aborted';
 
@@ -26,10 +28,20 @@ export interface ObservationPacket {
   dominantAction: string;
   /** Overall frame confidence (0-1) */
   confidence: number;
+  /** Optional Temporal HAR prediction metadata */
+  temporalPrediction?: TemporalHARPrediction;
+  temporalStability?: PredictionStability;
 }
 
 /** Verification outcome from the Procedure Engine */
-export type VerificationOutcome = 'VERIFIED' | 'WRONG_STEP' | 'SKIPPED' | 'PENDING';
+export type VerificationOutcome =
+  | 'VERIFIED'
+  | 'WRONG_STEP'
+  | 'SKIPPED'
+  | 'OUT_OF_ORDER'
+  | 'AMBIGUOUS'
+  | 'WAITING'
+  | 'PENDING';
 
 /** One entry in the session audit log */
 export interface AuditEntry {
@@ -41,7 +53,10 @@ export interface AuditEntry {
   confidence: number;
   observedAction: string;
   message: string;
+  windowInfo?: string;
+  stability?: string;
 }
+
 
 /** Live state of a single procedure step during a session */
 export interface LiveStep {

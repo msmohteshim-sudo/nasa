@@ -27,8 +27,11 @@ import { taskEngine } from '@/services/mission/taskEngine';
 import { anomalyEngine } from '@/services/mission/anomalyEngine';
 import { eventLogService } from '@/services/mission/eventLog';
 import { demoScenarioService } from '@/services/mission/demoScenarioService';
+import { temporalHARManager } from '@/services/har/temporalHARManager';
+import type { PerFrameObservation } from '@/types/temporalHAR';
 
 type VisionCallback = (result: VisionResult) => void;
+
 
 export class VisionPipeline {
   private mode: VisionMode = 'MAXIMUM';
@@ -64,7 +67,9 @@ export class VisionPipeline {
 
   setExpectedAction(actionCode?: string) {
     this.expectedActionCode = actionCode;
+    temporalHARManager.setExpectedAction(actionCode || null);
   }
+
 
   subscribe(cb: VisionCallback): () => void {
     this.listeners.add(cb);
@@ -111,6 +116,28 @@ export class VisionPipeline {
     // Check if interactive demo scenario is active
     if (demoScenarioService.isDemoActive()) {
       const demoResult = demoScenarioService.generateScenarioFrame(this.frameId);
+
+      const demoObs: PerFrameObservation = {
+        frameIndex: this.frameId,
+        timestampMs: Date.now(),
+        formattedTime: demoResult.formattedTime,
+        fps: 30,
+        persons: demoResult.persons,
+        primaryPerson: demoResult.persons.find((p) => p.isPrimary) || demoResult.persons[0],
+        pose: demoResult.poses[0],
+        hands: demoResult.hands,
+        objects: demoResult.objects,
+        interactions: demoResult.interactions,
+        motion: demoResult.motions[0],
+      };
+
+      temporalHARManager.addObservation(demoObs);
+      const temporalPrediction = temporalHARManager.predict();
+      const temporalMetrics = temporalHARManager.getMetrics(30);
+
+      demoResult.temporalHAR = temporalPrediction;
+      demoResult.temporalMetrics = temporalMetrics;
+
       this.listeners.forEach((listener) => listener(demoResult));
       return;
     }
@@ -125,6 +152,7 @@ export class VisionPipeline {
 
     const nowMs = performance.now();
     const nowHHMMSS = new Date().toLocaleTimeString('en-GB', { hour12: false });
+
 
     // 1. Person Detection & Multi-Subject Tracking
     const rawPersons = await personDetector.detectPersons(this.videoElement, this.scratchCanvas);
@@ -225,6 +253,25 @@ export class VisionPipeline {
       this.lastInferenceFpsTime = endTime;
     }
 
+    // Feed Temporal HAR Buffer
+    const perFrameObs: PerFrameObservation = {
+      frameIndex: this.frameId,
+      timestampMs: Date.now(),
+      formattedTime: nowHHMMSS,
+      fps: cameraService.getCameraFps(),
+      persons: zoneResult.updatedPersons,
+      primaryPerson: zoneResult.updatedPersons.find((p) => p.isPrimary) || zoneResult.updatedPersons[0],
+      pose: poses[0],
+      hands,
+      objects: zoneResult.updatedObjects,
+      interactions,
+      motion: motions[0],
+    };
+
+    temporalHARManager.addObservation(perFrameObs);
+    const temporalPrediction = temporalHARManager.predict();
+    const temporalMetrics = temporalHARManager.getMetrics(cameraService.getCameraFps());
+
     const { status: modelStatus } = tfjsLoader.getModels();
     const cameraCaps: CameraCapabilities | null = cameraService.isActive()
       ? cameraService.discoverCapabilities()
@@ -268,10 +315,13 @@ export class VisionPipeline {
       camera: cameraCaps,
       performance: performanceMetrics,
       secondaryPersonPresent,
+      temporalHAR: temporalPrediction,
+      temporalMetrics,
     };
 
     // Broadcast to UI subscribers
     this.listeners.forEach((listener) => listener(resultPacket));
+
   }
 }
 

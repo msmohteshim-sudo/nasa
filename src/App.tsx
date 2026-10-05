@@ -23,8 +23,17 @@ export const App: React.FC = () => {
       <SessionProvider>
         <BrowserRouter>
           <Routes>
-            {/* ── Public pages ── */}
+            {/* ── Canonical single public landing route ── */}
             <Route path="/" element={<LandingPage />} />
+
+            {/* Consolidated public aliases redirecting to canonical landing */}
+            <Route path="/home" element={<Navigate to="/" replace />} />
+            <Route path="/welcome" element={<Navigate to="/" replace />} />
+            <Route path="/landing" element={<Navigate to="/" replace />} />
+            <Route path="/public-home" element={<Navigate to="/" replace />} />
+            <Route path="/start" element={<Navigate to="/" replace />} />
+
+            {/* ── Public auth pages ── */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 

@@ -4,7 +4,7 @@
 // hand-object interactions, procedure step completions, and safety anomalies.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { MissionEvent, MissionEventType } from '@/types/vision';
+import type { MissionEvent } from '@/types/vision';
 
 type EventListener = (event: MissionEvent) => void;
 

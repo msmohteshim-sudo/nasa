@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // ALTRON — Session Context (Global State)
-// Single source of truth for experiment session lifecycle and Vision Pipeline.
+// Single source of truth for experiment session lifecycle, Vision Pipeline, and Temporal HAR.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, {
@@ -14,11 +14,18 @@ import React, {
 } from 'react';
 import type { ExperimentSession, LiveStep, ObservationPacket, SessionStatus } from '@/types/session';
 import type { VisionResult, VisionMode, VisionOverlaySettings } from '@/types/vision';
+import type {
+  TemporalTimelineEntry,
+  TemporalWindowConfig,
+  CanonicalAction,
+} from '@/types/temporalHAR';
+import { DEFAULT_TEMPORAL_CONFIG } from '@/types/temporalHAR';
 import { CANONICAL_EXPERIMENT } from '@/data/canonicalExperiment';
 import { sampleObservation } from '@/services/detection/mockDetectionService';
 import { evaluateObservation } from '@/services/engine/procedureEngine';
 import { VoiceGuidanceService } from '@/services/voice/voiceGuidanceService';
 import { visionPipeline } from '@/services/vision/visionPipeline';
+import { temporalHARManager } from '@/services/har/temporalHARManager';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -56,6 +63,10 @@ const INITIAL_OVERLAY_SETTINGS: VisionOverlaySettings = {
   showTracking: true,
   showMotionVectors: true,
   showInteractions: true,
+  showZones: true,
+  showTrajectories: true,
+  showTaskHUD: true,
+  showAnomalies: true,
   showROI: true,
 };
 
@@ -86,6 +97,20 @@ interface SessionContextValue {
   setVisionMode: (mode: VisionMode) => void;
   overlaySettings: VisionOverlaySettings;
   setOverlaySettings: React.Dispatch<React.SetStateAction<VisionOverlaySettings>>;
+
+  // Temporal HAR state & controls
+  temporalTimeline: TemporalTimelineEntry[];
+  addTimelineEntry: (entry: TemporalTimelineEntry) => void;
+  clearTimeline: () => void;
+  temporalMode: 'DEMO' | 'REAL';
+  setTemporalMode: (mode: 'DEMO' | 'REAL') => void;
+  temporalWindowConfig: TemporalWindowConfig;
+  setTemporalWindowConfig: (config: Partial<TemporalWindowConfig>) => void;
+  triggerModelUnavailableTest: () => void;
+  triggerModelAnalyticalTest: () => void;
+  triggerAmbiguousTest: () => void;
+  triggerOutOfOrderTest: () => void;
+
   /** Start a fresh experiment session */
   startSession: () => void;
   /** Pause the running session */
@@ -120,6 +145,11 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
   const [visionMode, setVisionModeState] = useState<VisionMode>('MAXIMUM');
   const [overlaySettings, setOverlaySettings] = useState<VisionOverlaySettings>(INITIAL_OVERLAY_SETTINGS);
 
+  // Temporal HAR state
+  const [temporalTimeline, setTemporalTimeline] = useState<TemporalTimelineEntry[]>([]);
+  const [temporalMode, setTemporalModeState] = useState<'DEMO' | 'REAL'>('DEMO');
+  const [temporalWindowConfig, setTemporalWindowConfigState] = useState<TemporalWindowConfig>(DEFAULT_TEMPORAL_CONFIG);
+
   const sessionRef = useRef(session);
   sessionRef.current = session;
 
@@ -131,14 +161,53 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
     visionPipeline.setMode(mode);
   }, []);
 
+  const setTemporalMode = useCallback((mode: 'DEMO' | 'REAL') => {
+    setTemporalModeState(mode);
+    temporalHARManager.setMode(mode);
+  }, []);
+
+  const setTemporalWindowConfig = useCallback((cfg: Partial<TemporalWindowConfig>) => {
+    setTemporalWindowConfigState((prev) => {
+      const updated = { ...prev, ...cfg };
+      temporalHARManager.setWindowConfig(updated);
+      return updated;
+    });
+  }, []);
+
+  const triggerModelUnavailableTest = useCallback(() => {
+    setTemporalModeState('REAL');
+    temporalHARManager.setMode('REAL');
+    temporalHARManager.setRealModelUnavailable();
+  }, []);
+
+  const triggerModelAnalyticalTest = useCallback(() => {
+    setTemporalModeState('REAL');
+    temporalHARManager.setMode('REAL');
+    temporalHARManager.setRealModelAnalytical();
+  }, []);
+
+  const addTimelineEntry = useCallback((entry: TemporalTimelineEntry) => {
+    setTemporalTimeline((prev) => [entry, ...prev].slice(0, 50));
+  }, []);
+
+  const clearTimeline = useCallback(() => {
+    setTemporalTimeline([]);
+  }, []);
+
   // ── Subscribe to real-time VisionPipeline ──────────────────────────────────
   useEffect(() => {
     const unsubscribe = visionPipeline.subscribe((result) => {
       setLatestVisionResult(result);
 
-      // Convert VisionResult to ObservationPacket format for Session
+      // Extract Temporal HAR prediction metadata
+      const temporalPred = result.temporalHAR;
       const activeStep = sessionRef.current.steps[sessionRef.current.currentStepIndex];
-      const dominantAction = result.actions[0]?.action || activeStep?.expectedAction || 'OBSERVING_WORKSTATION';
+
+      const dominantAction =
+        temporalPred?.action ||
+        result.actions[0]?.action ||
+        activeStep?.expectedAction ||
+        'OBSERVING_WORKSTATION';
 
       const detections = result.objects.map((obj) => ({
         label: obj.label,
@@ -147,7 +216,6 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
         recognisedAction: dominantAction,
       }));
 
-      // Add person & hand detections if objects list is small
       if (result.persons.length > 0) {
         detections.unshift({
           label: result.persons[0].id,
@@ -157,12 +225,22 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
         });
       }
 
+      // Real or simulated confidence score
+      let confValue = 0.90;
+      if (temporalPred?.confidence !== null && temporalPred?.confidence !== undefined) {
+        confValue = temporalPred.confidence;
+      } else if (result.actions[0]?.confidence) {
+        confValue = result.actions[0].confidence / 100;
+      }
+
       const realObservation: ObservationPacket = {
         frameId: result.frameId,
         timestamp: result.formattedTime,
         detections,
         dominantAction,
-        confidence: (result.actions[0]?.confidence || result.persons[0]?.confidence || 90) / 100,
+        confidence: confValue,
+        temporalPrediction: temporalPred,
+        temporalStability: temporalPred?.stability,
       };
 
       setSession((prev) => ({
@@ -211,11 +289,29 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       const activeStep = current.steps[current.currentStepIndex];
       if (!activeStep || activeStep.status === 'completed') return;
 
-      // Update vision pipeline expected action code
+      // Update vision pipeline and HAR manager with expected action
       visionPipeline.setExpectedAction(activeStep.expectedAction);
 
-      const observation: ObservationPacket = current.lastObservation || sampleObservation(activeStep.expectedAction);
-      const { outcome, updatedStep, auditEntry } = evaluateObservation(activeStep, observation);
+      const observation: ObservationPacket =
+        current.lastObservation || sampleObservation(activeStep.expectedAction);
+
+      // Evaluate through ProcedureEngine with full steps array for out-of-order check
+      const { outcome, updatedStep, auditEntry } = evaluateObservation(
+        activeStep,
+        observation,
+        current.steps,
+        current.currentStepIndex
+      );
+
+      // If action is AMBIGUOUS or LOW_CONFIDENCE, do not transition step
+      if (outcome === 'AMBIGUOUS' || outcome === 'PENDING') {
+        setSession((prev) => ({
+          ...prev,
+          lastObservation: observation,
+          auditLog: [auditEntry, ...prev.auditLog].slice(0, 200),
+        }));
+        return;
+      }
 
       setSession((prev) => {
         if (prev.status !== 'active') return prev;
@@ -225,6 +321,22 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
 
         let nextIndex = prev.currentStepIndex;
         let newStatus: SessionStatus = prev.status;
+
+        // Record to dynamic Temporal Activity Timeline
+        const timelineItem: TemporalTimelineEntry = {
+          id: `tl-${Date.now()}-${observation.dominantAction}`,
+          timestamp: observation.timestamp,
+          windowFrames: observation.temporalPrediction?.frameCount || 60,
+          windowDurationSec: observation.temporalPrediction?.windowDurationSec || 2.0,
+          action: (observation.temporalPrediction?.action as CanonicalAction) || (observation.dominantAction as CanonicalAction),
+          confidence: observation.temporalPrediction?.confidence ?? null,
+          confidenceDisplay: observation.temporalPrediction?.confidenceDisplay ?? `${Math.round(observation.confidence * 100)}%`,
+          stability: observation.temporalStability || 'STABLE',
+          procedureOutcome: outcome,
+          expectedAction: activeStep.expectedAction,
+          isRealInference: observation.temporalPrediction?.isRealInference ?? false,
+        };
+        setTemporalTimeline((tPrev) => [timelineItem, ...tPrev].slice(0, 50));
 
         if (outcome === 'VERIFIED') {
           VoiceGuidanceService.announceVerified(activeStep.stepNumber);
@@ -251,6 +363,10 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
           VoiceGuidanceService.announceDeviation(activeStep.expectedAction, observation.dominantAction);
         }
 
+        if (outcome === 'OUT_OF_ORDER') {
+          VoiceGuidanceService.announceOutOfOrder(activeStep.stepNumber, observation.dominantAction);
+        }
+
         return {
           ...prev,
           steps: newSteps,
@@ -261,7 +377,7 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
           auditLog: [auditEntry, ...prev.auditLog].slice(0, 200),
         };
       });
-    }, 3500);
+    }, 3200);
   }, [stopElapsedTimer]);
 
   const stopDetectionLoop = useCallback(() => {
@@ -291,6 +407,8 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       elapsedSeconds: 0,
     };
     setSession(newSession);
+    setTemporalTimeline([]);
+    temporalHARManager.reset();
     startElapsedTimer();
     startDetectionLoop();
 
@@ -329,6 +447,8 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
   const resetSession = useCallback(() => {
     stopDetectionLoop();
     stopElapsedTimer();
+    temporalHARManager.reset();
+    setTemporalTimeline([]);
     setSession({
       ...INITIAL_SESSION,
       cameraActive: sessionRef.current.cameraActive,
@@ -342,7 +462,12 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       const activeStep = prev.steps[prev.currentStepIndex];
       if (!activeStep) return prev;
       const observation = sampleObservation(activeStep.expectedAction);
-      const { updatedStep, auditEntry } = evaluateObservation(activeStep, { ...observation, confidence: 0.97, dominantAction: activeStep.expectedAction });
+      const { updatedStep, auditEntry } = evaluateObservation(activeStep, {
+        ...observation,
+        confidence: 0.97,
+        dominantAction: activeStep.expectedAction,
+        temporalStability: 'STABLE',
+      });
       const newSteps = [...prev.steps];
       newSteps[prev.currentStepIndex] = { ...updatedStep, status: 'completed' };
       const nextIndex = prev.currentStepIndex + 1;
@@ -355,6 +480,23 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
         stopElapsedTimer();
         VoiceGuidanceService.announceSessionComplete();
       }
+
+      // Add to timeline
+      const timelineItem: TemporalTimelineEntry = {
+        id: `tl-${Date.now()}-${activeStep.expectedAction}`,
+        timestamp: observation.timestamp,
+        windowFrames: 60,
+        windowDurationSec: 2.0,
+        action: activeStep.expectedAction as CanonicalAction,
+        confidence: 0.97,
+        confidenceDisplay: '97%',
+        stability: 'STABLE',
+        procedureOutcome: 'VERIFIED',
+        expectedAction: activeStep.expectedAction,
+        isRealInference: false,
+      };
+      setTemporalTimeline((tPrev) => [timelineItem, ...tPrev].slice(0, 50));
+
       VoiceGuidanceService.announceVerified(activeStep.stepNumber);
       return {
         ...prev,
@@ -374,10 +516,31 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
       const activeStep = prev.steps[prev.currentStepIndex];
       if (!activeStep) return prev;
       const observation = sampleObservation(activeStep.expectedAction, true);
-      const { updatedStep, auditEntry } = evaluateObservation(activeStep, observation);
+      const { updatedStep, auditEntry } = evaluateObservation(activeStep, {
+        ...observation,
+        confidence: 0.88,
+        dominantAction: 'STOW',
+        temporalStability: 'STABLE',
+      });
       const newSteps = [...prev.steps];
       newSteps[prev.currentStepIndex] = { ...updatedStep, status: 'wrong' };
-      VoiceGuidanceService.announceDeviation(activeStep.expectedAction, observation.dominantAction);
+
+      const timelineItem: TemporalTimelineEntry = {
+        id: `tl-${Date.now()}-STOW`,
+        timestamp: observation.timestamp,
+        windowFrames: 60,
+        windowDurationSec: 2.0,
+        action: 'STOW',
+        confidence: 0.88,
+        confidenceDisplay: '88%',
+        stability: 'STABLE',
+        procedureOutcome: 'WRONG_STEP',
+        expectedAction: activeStep.expectedAction,
+        isRealInference: false,
+      };
+      setTemporalTimeline((tPrev) => [timelineItem, ...tPrev].slice(0, 50));
+
+      VoiceGuidanceService.announceDeviation(activeStep.expectedAction, 'STOW');
       return {
         ...prev,
         steps: newSteps,
@@ -409,11 +572,109 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
         observedAction: 'SKIPPED',
         message: `Step ${activeStep.stepNumber} was manually skipped.`,
       };
+
+      const timelineItem: TemporalTimelineEntry = {
+        id: `tl-${Date.now()}-skip`,
+        timestamp: nowHHMMSS(),
+        windowFrames: 60,
+        windowDurationSec: 2.0,
+        action: 'UNKNOWN',
+        confidence: null,
+        confidenceDisplay: 'SKIPPED',
+        stability: 'STABLE',
+        procedureOutcome: 'SKIPPED',
+        expectedAction: activeStep.expectedAction,
+        isRealInference: false,
+      };
+      setTemporalTimeline((tPrev) => [timelineItem, ...tPrev].slice(0, 50));
+
       return {
         ...prev,
         steps: newSteps,
         currentStepIndex: Math.min(nextIndex, prev.steps.length - 1),
         auditLog: [auditEntry, ...prev.auditLog].slice(0, 200),
+      };
+    });
+  }, []);
+
+  const triggerAmbiguousTest = useCallback(() => {
+    setSession((prev) => {
+      const activeStep = prev.steps[prev.currentStepIndex];
+      if (!activeStep) return prev;
+      const observation: ObservationPacket = {
+        frameId: Date.now() % 10000,
+        timestamp: nowHHMMSS(),
+        detections: [],
+        dominantAction: 'AMBIGUOUS',
+        confidence: 0.52,
+        temporalStability: 'AMBIGUOUS',
+      };
+      const { updatedStep, auditEntry } = evaluateObservation(activeStep, observation, prev.steps);
+      const newSteps = [...prev.steps];
+      newSteps[prev.currentStepIndex] = updatedStep;
+
+      const timelineItem: TemporalTimelineEntry = {
+        id: `tl-${Date.now()}-ambiguous`,
+        timestamp: observation.timestamp,
+        windowFrames: 60,
+        windowDurationSec: 2.0,
+        action: 'AMBIGUOUS',
+        confidence: 0.52,
+        confidenceDisplay: '52% (Ambiguous)',
+        stability: 'AMBIGUOUS',
+        procedureOutcome: 'AMBIGUOUS',
+        expectedAction: activeStep.expectedAction,
+        isRealInference: false,
+      };
+      setTemporalTimeline((tPrev) => [timelineItem, ...tPrev].slice(0, 50));
+
+      return {
+        ...prev,
+        steps: newSteps,
+        auditLog: [auditEntry, ...prev.auditLog].slice(0, 200),
+        lastObservation: observation,
+      };
+    });
+  }, []);
+
+  const triggerOutOfOrderTest = useCallback(() => {
+    setSession((prev) => {
+      const activeStep = prev.steps[prev.currentStepIndex];
+      if (!activeStep) return prev;
+      const outOfOrderAction = activeStep.expectedAction === 'SECURE' ? 'RECORD' : 'SECURE';
+      const observation: ObservationPacket = {
+        frameId: Date.now() % 10000,
+        timestamp: nowHHMMSS(),
+        detections: [],
+        dominantAction: outOfOrderAction,
+        confidence: 0.89,
+        temporalStability: 'STABLE',
+      };
+      const { updatedStep, auditEntry } = evaluateObservation(activeStep, observation, prev.steps);
+      const newSteps = [...prev.steps];
+      newSteps[prev.currentStepIndex] = updatedStep;
+
+      const timelineItem: TemporalTimelineEntry = {
+        id: `tl-${Date.now()}-${outOfOrderAction}`,
+        timestamp: observation.timestamp,
+        windowFrames: 60,
+        windowDurationSec: 2.0,
+        action: outOfOrderAction as CanonicalAction,
+        confidence: 0.89,
+        confidenceDisplay: '89%',
+        stability: 'STABLE',
+        procedureOutcome: 'OUT_OF_ORDER',
+        expectedAction: activeStep.expectedAction,
+        isRealInference: false,
+      };
+      setTemporalTimeline((tPrev) => [timelineItem, ...tPrev].slice(0, 50));
+      VoiceGuidanceService.announceOutOfOrder(activeStep.expectedAction, outOfOrderAction);
+
+      return {
+        ...prev,
+        steps: newSteps,
+        auditLog: [auditEntry, ...prev.auditLog].slice(0, 200),
+        lastObservation: observation,
       };
     });
   }, []);
@@ -439,6 +700,17 @@ export const SessionProvider: React.FC<{ children: ReactNode }> = ({ children })
         setVisionMode,
         overlaySettings,
         setOverlaySettings,
+        temporalTimeline,
+        addTimelineEntry,
+        clearTimeline,
+        temporalMode,
+        setTemporalMode,
+        temporalWindowConfig,
+        setTemporalWindowConfig,
+        triggerModelUnavailableTest,
+        triggerModelAnalyticalTest,
+        triggerAmbiguousTest,
+        triggerOutOfOrderTest,
         startSession,
         pauseSession,
         resumeSession,

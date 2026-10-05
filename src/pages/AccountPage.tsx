@@ -6,7 +6,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  UserCircle2,
   Mail,
   Shield,
   Building2,

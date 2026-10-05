@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   CheckCircle2,
@@ -10,6 +10,33 @@ import {
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { CANONICAL_EXPERIMENT } from '@/data/canonicalExperiment';
 import { useSession } from '@/context/SessionContext';
+import { WorkstationSensorSuite } from '@/components/telemetry/WorkstationSensorSuite';
+
+interface CameraFeedOption {
+  id: string;
+  channel: string;
+  label: string;
+  description: string;
+  src: string;
+  badge: string;
+  telemetry: string;
+  overlayHand: string;
+  overlayFixture: string;
+}
+
+const CAMERA_FEEDS: CameraFeedOption[] = [
+  {
+    id: 'astronaut-experiment',
+    channel: 'CAM 01',
+    label: 'Microgravity Science Workstation',
+    description: 'Astronaut performing biological & microgravity experiment inside space station',
+    src: '/src/assets/astronaut_demo_original.mp4',
+    badge: 'INTERNAL WORKSTATION',
+    telemetry: 'Station Science Workstation • 1080p Stream',
+    overlayHand: 'Hand → Experiment Module',
+    overlayFixture: 'Workstation Fixture',
+  },
+];
 
 export const DashboardPage: React.FC = () => {
   const { addLog } = useSystemStatus();
@@ -17,6 +44,31 @@ export const DashboardPage: React.FC = () => {
 
   const [simulateDeviation, setSimulateDeviation] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+
+  // Multi-Sensor Overlays & HUD State
+  const [sensorOverlayFilter, setSensorOverlayFilter] = useState<'ALL' | 'CORE' | 'OPTICAL' | 'ENVIRONMENT'>('ALL');
+  const [showSensorsHUD, setShowSensorsHUD] = useState(true);
+  const [liveMicroG, setLiveMicroG] = useState('0.0012g');
+  const [liveTemp, setLiveTemp] = useState('37.1°C');
+  const [livePressure, setLivePressure] = useState('101.3 kPa');
+  const [liveProximity, setLiveProximity] = useState('18.4 cm');
+  const [liveForce, setLiveForce] = useState('4.8 N');
+  const [liveCrewHR, setLiveCrewHR] = useState('72 bpm');
+
+  // Periodic sensor telemetry micro-fluctuation
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setLiveMicroG(`0.00${Math.floor(11 + Math.random() * 3)}g`);
+      setLiveTemp(`${(37.0 + Math.random() * 0.2).toFixed(1)}°C`);
+      setLivePressure(`101.${Math.floor(2 + Math.random() * 3)} kPa`);
+      setLiveProximity(`${(18.2 + Math.random() * 0.4).toFixed(1)} cm`);
+      setLiveForce(`${(4.7 + Math.random() * 0.2).toFixed(1)} N`);
+      setLiveCrewHR(`${Math.floor(70 + Math.random() * 4)} bpm`);
+    }, 2000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const activeFeed = CAMERA_FEEDS[0];
 
   // Derive from global session state
   const steps = session.steps;
@@ -423,53 +475,182 @@ export const DashboardPage: React.FC = () => {
            ════════════════════════════════════════════════════════════ */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-          {/* SECTION 06 — LIVE CAMERA PREVIEW (7 Cols) */}
-          <section className="lg:col-span-7 bg-white border border-gray-200 rounded-lg p-6 shadow-xs">
-            <div className="border-b border-gray-100 pb-3 mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="text-sm font-bold text-[#002244] uppercase tracking-wider">
-                  Live Experiment View
-                </h2>
-                <p className="text-xs text-gray-500 font-medium">
-                  Scientific laboratory experiment workstation view
-                </p>
+          {/* SECTION 06 — LIVE CAMERA PREVIEW WITH MULTI-SENSOR OVERLAYS (7 Cols) */}
+          <section className="lg:col-span-7 bg-white border border-gray-200 rounded-lg p-6 shadow-xs flex flex-col justify-between">
+            <div>
+              <div className="border-b border-gray-100 pb-3 mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-bold text-[#002244] uppercase tracking-wider">
+                      Live Experiment View & Sensors
+                    </h2>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-50 text-cyan-800 border border-cyan-300 font-bold">
+                      6 OVERLAYS ACTIVE
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 font-medium">
+                    {activeFeed.description}
+                  </p>
+                </div>
+                
+                {/* Sensor Filter Controls */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {(['ALL', 'CORE', 'OPTICAL', 'ENVIRONMENT'] as const).map((filter) => (
+                    <button
+                      key={filter}
+                      type="button"
+                      onClick={() => setSensorOverlayFilter(filter)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition ${
+                        sensorOverlayFilter === filter
+                          ? 'bg-[#002244] text-white shadow-xs'
+                          : 'bg-slate-100 text-gray-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      {filter === 'ALL' ? 'ALL SENSORS' : filter}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setShowSensorsHUD(!showSensorsHUD)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border transition ${
+                      showSensorsHUD
+                        ? 'bg-cyan-50 text-cyan-800 border-cyan-300'
+                        : 'bg-slate-50 text-gray-500 border-gray-300'
+                    }`}
+                    title="Toggle Live Sensor Telemetry HUD"
+                  >
+                    HUD: {showSensorsHUD ? 'ON' : 'OFF'}
+                  </button>
+                </div>
               </div>
-              <div className="text-right font-mono text-[10px] text-gray-500">
-                <span className="font-bold text-[#002244]">CAMERA 01</span> | SIMULATION MODE
+
+              {/* Clean Camera Preview Box with Live Multi-Sensor Overlays */}
+              <div className="relative bg-slate-900 aspect-16/9 rounded-lg overflow-hidden flex items-center justify-center border border-gray-300 shadow-inner">
+                <video
+                  key={activeFeed.src}
+                  src={activeFeed.src}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className="w-full h-full object-cover opacity-90"
+                />
+
+                {/* ── TOP SENSOR TELEMETRY HUD RIBBON ── */}
+                {showSensorsHUD && (
+                  <div className="absolute top-0 inset-x-0 bg-[#001428]/85 backdrop-blur-md px-3 py-1.5 border-b border-cyan-500/30 flex items-center justify-between text-[9px] font-mono text-slate-200 z-20 overflow-x-auto shadow-sm">
+                    <div className="flex items-center gap-1.5 font-bold text-cyan-300 shrink-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      <span>LIVE SENSOR BUS:</span>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span title="Microgravity Accelerometer"><span className="text-gray-400">μ-g:</span> <strong className="text-sky-300">{liveMicroG}</strong></span>
+                      <span title="Specimen Core Temperature"><span className="text-gray-400">Core:</span> <strong className="text-amber-300">{liveTemp}</strong></span>
+                      <span title="Cabin Atmospheric Pressure"><span className="text-gray-400">Press:</span> <strong className="text-blue-300">{livePressure}</strong></span>
+                      <span title="LiDAR Distance Sensor"><span className="text-gray-400">LiDAR:</span> <strong className="text-cyan-300">{liveProximity}</strong></span>
+                      <span title="Tactile Clamping Load"><span className="text-gray-400">Force:</span> <strong className="text-emerald-300">{liveForce}</strong></span>
+                      <span title="Cosmic Radiation Sensor"><span className="text-gray-400">Rad:</span> <strong className="text-pink-300">14.2 µSv/h</strong></span>
+                      <span title="Astronaut Wrist Pulse"><span className="text-gray-400">Crew HR:</span> <strong className="text-rose-300">{liveCrewHR}</strong></span>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── SENSOR OVERLAYS ON VIDEO ── */}
+
+                {/* SENSOR 1: Hand → Experiment Module (Green Box) */}
+                {(sensorOverlayFilter === 'ALL' || sensorOverlayFilter === 'CORE') && (
+                  <div className="absolute top-[28%] left-[22%] w-[32%] h-[42%] border-2 border-emerald-400 rounded-xs bg-emerald-500/10 pointer-events-none transition-all z-10">
+                    <span className="absolute -top-5 left-0 bg-emerald-600 text-white text-[9px] font-mono px-1.5 py-0.5 rounded shadow-xs flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-200 animate-ping" />
+                      {activeFeed.overlayHand}
+                    </span>
+                  </div>
+                )}
+
+                {/* SENSOR 2: Workstation Fixture (Blue Box) */}
+                {(sensorOverlayFilter === 'ALL' || sensorOverlayFilter === 'CORE') && (
+                  <div className="absolute top-[48%] right-[22%] w-[24%] h-[28%] border-2 border-blue-400 rounded-xs bg-blue-500/10 pointer-events-none transition-all z-10">
+                    <span className="absolute -top-5 left-0 bg-blue-600 text-white text-[9px] font-mono px-1.5 py-0.5 rounded shadow-xs">
+                      {activeFeed.overlayFixture}
+                    </span>
+                  </div>
+                )}
+
+                {/* SENSOR 3: LiDAR Proximity & Depth Matrix (Cyan Box) */}
+                {(sensorOverlayFilter === 'ALL' || sensorOverlayFilter === 'OPTICAL') && (
+                  <div className="absolute top-[15%] left-[46%] w-[18%] h-[26%] border-2 border-dashed border-cyan-400 rounded-xs bg-cyan-500/10 pointer-events-none transition-all z-10">
+                    <span className="absolute -top-5 left-0 bg-cyan-600 text-white text-[8.5px] font-mono px-1.5 py-0.5 rounded shadow-xs flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-200" />
+                      LiDAR: {liveProximity} · Depth: 0.62m
+                    </span>
+                    {/* Reticle Crosshair in center */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-3 h-3 border border-cyan-400/80 rounded-full" />
+                    </div>
+                  </div>
+                )}
+
+                {/* SENSOR 4: Thermal IR Specimen Chamber Sensor (Amber Box) */}
+                {(sensorOverlayFilter === 'ALL' || sensorOverlayFilter === 'OPTICAL') && (
+                  <div className="absolute top-[46%] left-[36%] w-[16%] h-[24%] border-2 border-amber-400 rounded-xs bg-amber-500/10 pointer-events-none transition-all z-10">
+                    <span className="absolute -top-5 left-0 bg-amber-600 text-white text-[8.5px] font-mono px-1.5 py-0.5 rounded shadow-xs">
+                      Thermal IR: {liveTemp} [Nominal]
+                    </span>
+                  </div>
+                )}
+
+                {/* SENSOR 5: Ventilation Airflow & Gas Sensor (Purple Box on Air Duct) */}
+                {(sensorOverlayFilter === 'ALL' || sensorOverlayFilter === 'ENVIRONMENT') && (
+                  <div className="absolute top-[18%] left-[56%] w-[11%] h-[46%] border-2 border-dashed border-purple-400 rounded-xs bg-purple-500/10 pointer-events-none transition-all z-10">
+                    <span className="absolute -top-5 left-0 bg-purple-700 text-white text-[8.5px] font-mono px-1.5 py-0.5 rounded shadow-xs whitespace-nowrap">
+                      Airflow: 0.18 m/s · O₂ 21.1%
+                    </span>
+                  </div>
+                )}
+
+                {/* SENSOR 6: Tactile Clamping Force & Latch Sensor (Emerald Box on Equipment Rack) */}
+                {(sensorOverlayFilter === 'ALL' || sensorOverlayFilter === 'ENVIRONMENT') && (
+                  <div className="absolute top-[14%] left-[65%] w-[18%] h-[32%] border-2 border-emerald-400 rounded-xs bg-emerald-500/10 pointer-events-none transition-all z-10">
+                    <span className="absolute -top-5 left-0 bg-emerald-700 text-white text-[8.5px] font-mono px-1.5 py-0.5 rounded shadow-xs">
+                      Tactile Latch: {liveForce} · LOCKED
+                    </span>
+                  </div>
+                )}
+
+                {/* SENSOR 7 & 8: Corner Badges (Micro-g & Radiation) */}
+                {sensorOverlayFilter === 'ALL' && (
+                  <>
+                    <div className="absolute top-10 left-3 bg-sky-950/80 border border-sky-400/60 text-sky-200 text-[8.5px] font-mono px-2 py-0.5 rounded backdrop-blur-xs z-10">
+                      MGU-01 Accel: {liveMicroG}
+                    </div>
+                    <div className="absolute top-10 right-3 bg-pink-950/80 border border-pink-400/60 text-pink-200 text-[8.5px] font-mono px-2 py-0.5 rounded backdrop-blur-xs z-10">
+                      RAD-09 Dosimeter: 14.2 µSv/h
+                    </div>
+                  </>
+                )}
+
+                {/* Subtitle / Closed Caption from astronaut audio */}
+                <div className="absolute bottom-11 left-4 max-w-[85%] text-white text-xs sm:text-sm font-medium drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] bg-black/60 backdrop-blur-xs px-2.5 py-1 rounded border border-white/10 z-10">
+                  With the help of the astronauts on board.
+                </div>
+
+                {/* Bottom camera telemetry bar */}
+                <div className="absolute bottom-2.5 left-4 right-4 bg-slate-900/85 backdrop-blur px-3 py-1.5 rounded text-[10px] font-mono text-white flex items-center justify-between z-20 border border-slate-700/60">
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-gray-400">Action:</span>
+                    <strong>{currentStep.action}</strong>
+                  </span>
+                  <span className="text-emerald-400 font-bold flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                    <span>VERIFIED</span>
+                  </span>
+                </div>
               </div>
             </div>
 
-            {/* Clean Camera Preview Box */}
-            <div className="relative bg-slate-900 aspect-16/9 rounded-lg overflow-hidden flex items-center justify-center border border-gray-300">
-              <img
-                src="/src/assets/hero_experiment.png"
-                alt="Microgravity Biological Observation Workstation"
-                className="w-full h-full object-cover opacity-85"
-              />
-
-              {/* Clean SVG Bounding Box Overlays */}
-              <div className="absolute top-[28%] left-[22%] w-[32%] h-[42%] border-2 border-emerald-400 rounded-xs bg-emerald-500/10">
-                <span className="absolute -top-5 left-0 bg-emerald-600 text-white text-[9px] font-mono px-1.5 py-0.5 rounded">
-                  Hand → Experiment Module
-                </span>
-              </div>
-
-              <div className="absolute top-[48%] right-[22%] w-[24%] h-[28%] border-2 border-blue-400 rounded-xs bg-blue-500/10">
-                <span className="absolute -top-5 left-0 bg-blue-600 text-white text-[9px] font-mono px-1.5 py-0.5 rounded">
-                  Workstation Fixture
-                </span>
-              </div>
-
-              {/* Bottom camera telemetry bar */}
-              <div className="absolute bottom-3 left-4 right-4 bg-slate-900/80 backdrop-blur px-3 py-1.5 rounded text-[10px] font-mono text-white flex items-center justify-between">
-                <span>Action: <strong>{currentStep.action}</strong></span>
-                <span className="text-emerald-400 font-bold">VERIFIED</span>
-              </div>
-            </div>
-
-            <div className="mt-4 flex items-center justify-between">
+            <div className="mt-4 flex items-center justify-between pt-2 border-t border-gray-100">
               <div className="text-xs text-gray-500 font-mono">
-                Microgravity Workstation Feed • 1080p Stream
+                {activeFeed.telemetry}
               </div>
               <Link
                 to="/monitor"
@@ -554,6 +735,12 @@ export const DashboardPage: React.FC = () => {
           </section>
 
         </div>
+
+
+        {/* ════════════════════════════════════════════════════════════
+           SECTION — WORKSTATION MULTI-SENSOR TELEMETRY SUITE
+           ════════════════════════════════════════════════════════════ */}
+        <WorkstationSensorSuite />
 
 
         {/* ════════════════════════════════════════════════════════════

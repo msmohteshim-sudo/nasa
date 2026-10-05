@@ -1,0 +1,106 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ALTRON_Temporal_HAR_Clip_Metadata",
+  "description": "Metadata schema for temporal activity clips in BAS experiment datasets",
+  "type": "object",
+  "required": [
+    "clip_id",
+    "session_id",
+    "operator_id",
+    "camera_id",
+    "action",
+    "start_frame",
+    "end_frame",
+    "start_timestamp_ms",
+    "end_timestamp_ms",
+    "duration_sec",
+    "fps",
+    "variations"
+  ],
+  "properties": {
+    "clip_id": {
+      "type": "string",
+      "pattern": "^CLIP-[0-9]{8}-[0-9]{4}$",
+      "description": "Unique identifier for the temporal video clip"
+    },
+    "session_id": {
+      "type": "string",
+      "description": "Identifier of the experiment run"
+    },
+    "operator_id": {
+      "type": "string",
+      "description": "Anonymized identifier for the operator/astronaut (e.g. OP-01, OP-02)"
+    },
+    "camera_id": {
+      "type": "string",
+      "enum": ["CAM-OVERHEAD-01", "CAM-SIDE-02", "CAM-WORKSTATION-03"],
+      "description": "Payload camera mount view identifier"
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "INITIALIZE",
+        "RETRIEVE",
+        "VERIFY",
+        "POSITION",
+        "SECURE",
+        "PREPARE",
+        "TRANSFER",
+        "ALIGN",
+        "OBSERVE",
+        "RECORD",
+        "STOW"
+      ],
+      "description": "Ground truth canonical procedural action label"
+    },
+    "procedure_step_number": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "description": "Step index in the standard operating procedure"
+    },
+    "start_frame": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "end_frame": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "start_timestamp_ms": {
+      "type": "number"
+    },
+    "end_timestamp_ms": {
+      "type": "number"
+    },
+    "duration_sec": {
+      "type": "number",
+      "description": "Temporal duration of the action sequence"
+    },
+    "fps": {
+      "type": "number",
+      "description": "Measured frame rate during recording"
+    },
+    "variations": {
+      "type": "object",
+      "properties": {
+        "speed_factor": {
+          "type": "number",
+          "description": "Execution speed multiplier relative to nominal (e.g. 0.8, 1.0, 1.3)"
+        },
+        "glove_type": {
+          "type": "string",
+          "enum": ["bare_hand", "nitrile_glove", "thermal_flight_glove"]
+        },
+        "lighting_lux": {
+          "type": "number",
+          "description": "Ambient workstation illuminance in lux"
+        },
+        "occlusion_level": {
+          "type": "string",
+          "enum": ["none", "low_partial", "medium_hand_overlap", "severe_view_blocked"]
+        }
+      }
+    }
+  }
+}

@@ -3,7 +3,10 @@
 // AI Human Activity Recognition for On-board BAS Experiments
 // ─────────────────────────────────────────────────────────────────────────────
 
+import type { TemporalHARPrediction, TemporalHARMetrics } from './temporalHAR';
+
 export type VisionMode = 'STANDARD' | 'BALANCED' | 'MAXIMUM';
+
 
 export interface BoundingBox {
   x: number; // pixel or 0..1 relative
@@ -291,7 +294,10 @@ export interface VisionResult {
   camera: CameraCapabilities | null;
   performance: VisionPerformanceMetrics;
   secondaryPersonPresent: boolean;
+  temporalHAR?: TemporalHARPrediction;
+  temporalMetrics?: TemporalHARMetrics;
 }
+
 
 export interface VisionOverlaySettings {
   showPersonBoxes: boolean;

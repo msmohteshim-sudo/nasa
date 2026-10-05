@@ -21,13 +21,13 @@ import {
   Cpu,
   Boxes,
   Compass,
-  CheckCircle2,
   ListOrdered,
   Flame,
   RotateCcw,
-  Video,
   Download,
   Disc,
+  Layers,
+  Gauge,
 } from 'lucide-react';
 import { useSession } from '@/context/SessionContext';
 import { CANONICAL_EXPERIMENT } from '@/data/canonicalExperiment';
@@ -39,6 +39,12 @@ import { eventLogService } from '@/services/mission/eventLog';
 import { anomalyEngine } from '@/services/mission/anomalyEngine';
 import { recordingService } from '@/services/vision/recordingService';
 import type { VisionMode, MissionEvent } from '@/types/vision';
+import { TemporalHARStatusCard } from '@/components/temporal/TemporalHARStatusCard';
+import { TemporalWindowVisualizer } from '@/components/temporal/TemporalWindowVisualizer';
+import { TemporalActivityTimeline } from '@/components/temporal/TemporalActivityTimeline';
+import { TemporalExplainabilityPanel } from '@/components/temporal/TemporalExplainabilityPanel';
+import { TemporalScenarioControls } from '@/components/temporal/TemporalScenarioControls';
+import { WorkstationSensorSuite } from '@/components/telemetry/WorkstationSensorSuite';
 
 function padTwo(n: number) {
   return String(n).padStart(2, '0');
@@ -67,14 +73,19 @@ export const MonitorPage: React.FC = () => {
     resetSession,
     toggleVoice,
     setCameraActive,
+    temporalTimeline,
+    clearTimeline,
+    temporalWindowConfig,
+    setTemporalWindowConfig,
   } = useSession();
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [selectedDemoId, setSelectedDemoId] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'ZONES' | 'ANOMALIES' | 'TELEMETRY'>('OVERVIEW');
+  const [activeTab, setActiveTab] = useState<'TEMPORAL' | 'OVERVIEW' | 'SENSORS' | 'ZONES' | 'ANOMALIES' | 'TELEMETRY'>('TEMPORAL');
   const [eventLogs, setEventLogs] = useState<MissionEvent[]>([]);
+
 
   // Recording State
   const [isRecording, setIsRecording] = useState<boolean>(false);
@@ -203,9 +214,10 @@ export const MonitorPage: React.FC = () => {
   const primaryAction = actions[0];
   const perf = latestVisionResult?.performance;
   const cameraCaps = latestVisionResult?.camera;
-  const activeTask = latestVisionResult?.activeTask;
   const anomalies = latestVisionResult?.anomalies ?? [];
   const zones = latestVisionResult?.zones ?? [];
+  const temporalPred = latestVisionResult?.temporalHAR;
+  const temporalMetrics = latestVisionResult?.temporalMetrics;
 
   const activeStep = session.steps[session.currentStepIndex] ?? session.steps[0];
   const activeDemo = demoScenarioService.getActiveScenario();
@@ -216,6 +228,10 @@ export const MonitorPage: React.FC = () => {
       ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
       : lastOutcome === 'WRONG_STEP'
       ? 'bg-rose-100 text-rose-800 border-rose-300'
+      : lastOutcome === 'OUT_OF_ORDER'
+      ? 'bg-rose-100 text-rose-800 border-rose-300'
+      : lastOutcome === 'AMBIGUOUS'
+      ? 'bg-purple-100 text-purple-800 border-purple-300'
       : lastOutcome === 'SKIPPED'
       ? 'bg-amber-100 text-amber-800 border-amber-300'
       : 'bg-slate-100 text-slate-600 border-gray-200';
@@ -223,11 +239,16 @@ export const MonitorPage: React.FC = () => {
   const verifyLabel =
     lastOutcome === 'VERIFIED'
       ? '✓ VERIFIED MATCH'
+      : lastOutcome === 'OUT_OF_ORDER'
+      ? '⚠ OUT-OF-ORDER ACTION DETECTED'
       : lastOutcome === 'WRONG_STEP'
       ? '⚠ OUT-OF-SEQUENCE DEVIATION'
+      : lastOutcome === 'AMBIGUOUS'
+      ? '⏳ TEMPORAL ACTION AMBIGUOUS — COLLECTING EVIDENCE'
       : lastOutcome === 'SKIPPED'
       ? '— STEP SKIPPED'
       : 'MONITORING…';
+
 
   return (
     <div className="min-h-screen bg-[#F7F9FC] text-gray-900 pb-16 font-sans">
@@ -309,8 +330,42 @@ export const MonitorPage: React.FC = () => {
           </div>
         </div>
 
+        {/* ── ALTRON PIPELINE STATUS BAR (Section 41) ── */}
+        <div className="bg-white border border-gray-200 rounded-lg px-4 py-2.5 shadow-xs flex items-center justify-between font-mono text-xs overflow-x-auto gap-4">
+          <span className="font-bold text-[#002244] uppercase tracking-wider text-[11px] shrink-0">
+            PIPELINE FLOW:
+          </span>
+          <div className="flex items-center gap-4 shrink-0 flex-wrap">
+            <span className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${session.cameraActive || activeDemo ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
+              <span className="text-gray-700 font-semibold text-[11px]">CAMERA</span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${poses.length > 0 ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+              <span className="text-gray-700 font-semibold text-[11px]">POSE</span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${(latestVisionResult?.hands?.length ?? 0) > 0 ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+              <span className="text-gray-700 font-semibold text-[11px]">HANDS</span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${objects.length > 0 ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+              <span className="text-gray-700 font-semibold text-[11px]">OBJECTS</span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${temporalPred?.status === 'MODEL_ACTIVE' ? 'bg-emerald-500 animate-pulse' : temporalPred?.status === 'DEMO_MODE' ? 'bg-amber-500' : 'bg-rose-400'}`} />
+              <span className="text-cyan-900 font-bold text-[11px]">TEMPORAL HAR</span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className={`w-2 h-2 rounded-full ${session.status === 'active' ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
+              <span className="text-emerald-900 font-bold text-[11px]">PROCEDURE ENGINE</span>
+            </span>
+          </div>
+        </div>
+
         {/* ── SESSION CONTROLS TOP BAR ── */}
         <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
+
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-2 font-mono text-xs font-bold text-[#002244] uppercase tracking-wide">
               <Activity className="w-4 h-4" />
@@ -574,48 +629,62 @@ export const MonitorPage: React.FC = () => {
               {/* Vision Engine Info Footer */}
               <div className="mt-3 bg-slate-50 border border-gray-200 rounded p-2.5 flex items-center justify-between font-mono text-[11px] text-gray-600 flex-wrap gap-2">
                 <div className="flex items-center gap-3">
-                  <span>MODEL: <strong className="text-[#002244]">TF.js COCO + MoveNet HAR</strong></span>
+                  <span>MODEL: <strong className="text-[#002244]">{temporalPred ? temporalPred.statusNote : 'TF.js MoveNet + Temporal HAR'}</strong></span>
                   <span>RES: <strong className="text-gray-900">{cameraCaps ? `${cameraCaps.resolutionWidth}x${cameraCaps.resolutionHeight}` : '1280x720'}</strong></span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span>CAM FPS: <strong className="text-emerald-700">{perf?.cameraFPS || 30}</strong></span>
-                  <span>INF FPS: <strong className="text-blue-700">{perf?.inferenceFPS || 18}</strong></span>
-                  <span>LATENCY: <strong className="text-rose-700">{perf?.latencyMs || 42} ms</strong></span>
+                  <span>CAM FPS: <strong className="text-emerald-700">{session.cameraActive && perf?.cameraFPS ? perf.cameraFPS : activeDemo ? 30 : 'OFFLINE'}</strong></span>
+                  <span>INF FPS: <strong className="text-blue-700">{perf?.inferenceFPS || 20}</strong></span>
+                  <span>HAR LATENCY: <strong className="text-rose-700">{temporalMetrics?.inferenceLatencyMs !== null && temporalMetrics?.inferenceLatencyMs !== undefined ? `${temporalMetrics.inferenceLatencyMs} ms` : 'N/A (Demo)'}</strong></span>
                 </div>
               </div>
             </div>
 
+            {/* Real-Time Temporal HAR Recognition Status Card */}
+            <TemporalHARStatusCard
+              prediction={temporalPred}
+              metrics={temporalMetrics}
+              secondaryPersonPresent={latestVisionResult?.secondaryPersonPresent}
+            />
+
             {/* Procedure Verification Engine Box */}
-            <div className="bg-white border border-gray-200 rounded-lg p-5 shadow-xs space-y-3">
+            <div className="bg-white border border-gray-200 rounded-lg p-5 shadow-xs space-y-3 font-mono">
               <div className="flex items-center justify-between border-b border-gray-100 pb-2">
-                <span className="text-xs font-mono font-bold text-gray-400 uppercase tracking-widest">
+                <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">
                   PROCEDURE VERIFICATION ENGINE
                 </span>
-                <span className="text-xs font-mono font-bold text-[#002244]">
+                <span className="text-xs font-bold text-[#002244]">
                   STEP {padTwo(session.currentStepIndex + 1)} / {padTwo(session.steps.length)}
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                 <div className="bg-slate-50 p-3 rounded border border-gray-200">
                   <span className="text-[10px] text-gray-400 uppercase font-bold">EXPECTED ACTION:</span>
                   <p className="font-bold text-[#002244] mt-0.5 truncate">{activeStep?.title}</p>
                 </div>
                 <div className="bg-slate-50 p-3 rounded border border-gray-200">
-                  <span className="text-[10px] text-gray-400 uppercase font-bold">OBSERVED ACTION:</span>
+                  <span className="text-[10px] text-gray-400 uppercase font-bold">OBSERVED TEMPORAL ACTION:</span>
                   <p className="font-bold text-emerald-800 mt-0.5 truncate">
-                    {primaryAction ? `${primaryAction.action} (${primaryAction.confidence}%)` : session.lastObservation?.dominantAction || 'OBSERVING_WORKSTATION'}
+                    {temporalPred ? `${temporalPred.action} (${temporalPred.confidenceDisplay})` : primaryAction ? `${primaryAction.action} (${primaryAction.confidence}%)` : session.lastObservation?.dominantAction || 'OBSERVING_WORKSTATION'}
                   </p>
                 </div>
               </div>
 
-              <div className={`p-3 rounded border text-center font-mono text-xs font-bold ${verifyBg}`}>
+              <div className={`p-3 rounded border text-center text-xs font-bold ${verifyBg}`}>
                 {verifyLabel}
               </div>
 
+              {session.currentStepIndex + 1 < session.steps.length && (
+                <div className="p-2 bg-slate-50 border border-gray-200 rounded text-xs flex items-center justify-between">
+                  <span className="text-gray-400 text-[10px] uppercase font-bold">NEXT PROTOCOL STEP:</span>
+                  <span className="font-semibold text-gray-700 truncate">{session.steps[session.currentStepIndex + 1].title}</span>
+                </div>
+              )}
+
               {/* Simulation Manual Overrides */}
-              <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-[11px] font-mono flex-wrap gap-2">
-                <span className="text-gray-400 font-bold">MANUAL OVERRIDES:</span>
+              <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-[11px] flex-wrap gap-2">
+                <span className="text-gray-400 font-bold">PROCEDURE CONTROLS:</span>
                 <div className="flex items-center gap-2">
                   <button onClick={simulateVerified} className="px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-300 rounded font-bold hover:bg-emerald-100">
                     ✓ VERIFY STEP
@@ -630,6 +699,13 @@ export const MonitorPage: React.FC = () => {
               </div>
             </div>
 
+            {/* "WHY THIS ACTION?" Explainability Panel (Section 26) */}
+            <TemporalExplainabilityPanel
+              explainability={temporalPred?.explainability}
+              action={temporalPred?.action || 'OBSERVING'}
+              isRealInference={temporalPred?.isRealInference}
+            />
+
           </div>
 
           {/* Right Column: Real-Time AI Perception Panels */}
@@ -638,7 +714,9 @@ export const MonitorPage: React.FC = () => {
             {/* Dashboard Tab Selector */}
             <div className="flex items-center gap-1 bg-white p-1 rounded-lg border border-gray-200 text-xs font-mono">
               {[
+                { id: 'TEMPORAL', label: 'TEMPORAL HAR', icon: Layers },
                 { id: 'OVERVIEW', label: 'PERCEPTION', icon: Activity },
+                { id: 'SENSORS', label: 'SENSORS (8)', icon: Gauge },
                 { id: 'ZONES', label: 'ZONES', icon: Compass },
                 { id: 'ANOMALIES', label: `ALERTS (${anomalies.length})`, icon: AlertTriangle },
                 { id: 'TELEMETRY', label: 'LOGS', icon: ListOrdered },
@@ -649,18 +727,38 @@ export const MonitorPage: React.FC = () => {
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id as any)}
-                    className={`flex-1 py-1 px-2 rounded font-bold flex items-center justify-center gap-1 transition-all ${
+                    className={`flex-1 py-1.5 px-2 rounded font-bold flex items-center justify-center gap-1 transition-all ${
                       isActive
                         ? 'bg-[#002244] text-white shadow-xs'
                         : 'text-gray-600 hover:text-gray-900 hover:bg-slate-100'
                     }`}
                   >
                     <Icon className="w-3.5 h-3.5" />
-                    <span>{tab.label}</span>
+                    <span className="text-[11px]">{tab.label}</span>
                   </button>
                 );
               })}
             </div>
+
+            {/* TAB: TEMPORAL HAR */}
+            {activeTab === 'TEMPORAL' && (
+              <div className="space-y-4">
+                <TemporalWindowVisualizer
+                  metrics={temporalMetrics}
+                  config={temporalWindowConfig}
+                  onUpdateConfig={setTemporalWindowConfig}
+                  status={temporalPred?.status || 'DEMO_MODE'}
+                />
+
+                <TemporalScenarioControls />
+
+                <TemporalActivityTimeline
+                  timeline={temporalTimeline}
+                  onClear={clearTimeline}
+                />
+              </div>
+            )}
+
 
             {activeTab === 'OVERVIEW' && (
               <>
@@ -794,6 +892,13 @@ export const MonitorPage: React.FC = () => {
                   </div>
                 </div>
               </>
+            )}
+
+            {/* TAB: SENSORS TELEMETRY SUITE */}
+            {activeTab === 'SENSORS' && (
+              <div className="space-y-4">
+                <WorkstationSensorSuite />
+              </div>
             )}
 
             {/* TAB: SPATIAL ZONES */}

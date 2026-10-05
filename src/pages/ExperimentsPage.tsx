@@ -294,7 +294,7 @@ const StepRow: React.FC<StepRowProps> = ({ step, isLast, isExpanded, onToggle })
 // MINI TIMELINE — compact flow overview in right panel
 // ─────────────────────────────────────────────────────────────────────────────
 
-const MiniTimeline: React.FC<{ steps: LiveStep[]; currentIdx: number }> = ({ steps, currentIdx }) => (
+const MiniTimeline: React.FC<{ steps: LiveStep[] }> = ({ steps }) => (
   <div className="flex flex-col gap-0">
     {steps.map((step, i) => {
       const isDone = step.status === 'completed';
@@ -760,7 +760,7 @@ export const ExperimentsPage: React.FC = () => {
               <h3 className="text-[10px] font-mono font-bold tracking-[0.2em] uppercase text-gray-400 mb-4">
                 Procedure Flow
               </h3>
-              <MiniTimeline steps={steps} currentIdx={session.currentStepIndex} />
+              <MiniTimeline steps={steps} />
             </div>
 
             {/* ── DEMO SIMULATION CONTROLS (only when session active) ── */}

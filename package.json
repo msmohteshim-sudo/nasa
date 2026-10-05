@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "tsc -b",
+    "test": "npx tsx --tsconfig ./tsconfig.app.json src/__tests__/temporalHAR.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -27,6 +28,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
+    "sharp": "^0.35.5",
     "tailwindcss": "^3.4.16",
     "typescript": "^5.6.3",
     "vite": "^6.0.1"

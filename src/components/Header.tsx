@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
+import { AltronLogo } from '@/components/AltronLogo';
 import {
   Bell,
   Search,
   X,
-  Home,
   ChevronRight,
   Video,
   Cpu,
@@ -76,9 +76,9 @@ export const Header: React.FC = () => {
       {/* Left: Breadcrumb + page title */}
       <div className="flex items-center gap-3 min-w-0">
         <div className="hidden sm:flex items-center gap-2 text-xs font-mono text-gray-500">
-          <Link to="/" className="hover:text-[#002244] transition-colors flex items-center gap-1 font-bold text-[#002244]">
-            <Home className="w-3.5 h-3.5 text-gray-500" />
-            <span>ALTRON</span>
+          <Link to="/" className="hover:text-[#1a6fc4] transition-colors flex items-center gap-2 font-black text-[#002244]">
+            <AltronLogo size={24} className="w-6 h-6 shrink-0 drop-shadow-[0_1px_6px_rgba(26,111,196,0.35)]" />
+            <span className="tracking-[0.2em] font-sans font-black">ALTRON</span>
           </Link>
           <ChevronRight className="w-3 h-3 text-gray-400" />
           <span className="text-gray-800 font-medium">{currentNavItem.label}</span>

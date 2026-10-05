@@ -29,6 +29,8 @@ interface AuthContextValue {
   error: string | null;
   /** Execute real login */
   login: (credentials: LoginCredentials) => Promise<boolean>;
+  /** Execute biometric face login */
+  loginWithBiometrics: (userId: string, rememberDevice?: boolean, details?: string) => Promise<boolean>;
   /** Clear session and logout */
   logout: () => void;
   /** Check if current user has a specific permission */
@@ -89,6 +91,33 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, []);
 
+  const loginWithBiometrics = useCallback(
+    async (userId: string, rememberDevice = false, details?: string): Promise<boolean> => {
+      setError(null);
+      setIsLoading(true);
+
+      try {
+        const result = await AuthService.loginWithBiometrics(userId, rememberDevice, details);
+
+        if (result.success && result.session) {
+          setSession(result.session);
+          setSecurityLogs(AuthService.getSecurityLogs());
+          setIsLoading(false);
+          return true;
+        } else {
+          setError(result.error || 'Biometric authentication failed.');
+          setIsLoading(false);
+          return false;
+        }
+      } catch (err: any) {
+        setError(err?.message || 'An unexpected biometric error occurred.');
+        setIsLoading(false);
+        return false;
+      }
+    },
+    []
+  );
+
   const logout = useCallback(() => {
     AuthService.logout(session?.user);
     setSession(null);
@@ -139,6 +168,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         isLoading,
         error,
         login,
+        loginWithBiometrics,
         logout,
         hasPermission,
         hasRole,

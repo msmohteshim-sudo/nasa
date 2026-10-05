@@ -39,10 +39,10 @@ const VOICE_LOG = [
 
 export const ReportsPage: React.FC = () => {
   const { logs } = useSystemStatus();
-  const { session } = useSession();
+  const { session, temporalTimeline } = useSession();
   const [searchQuery, setSearchQuery] = useState('');
   const [levelFilter, setLevelFilter] = useState<string>('all');
-  const [activeTab, setActiveTab] = useState<'evidence' | 'audit' | 'voice'>('evidence');
+  const [activeTab, setActiveTab] = useState<'evidence' | 'temporal' | 'audit' | 'voice'>('evidence');
 
   // Build evidence rows from session steps (real data) or fallback to static
   const evidenceRows = session.steps.map((s) => ({
@@ -54,6 +54,7 @@ export const ReportsPage: React.FC = () => {
     expected: s.expectedAction,
     observed: s.observedAction,
   }));
+
 
 
   const filteredLogs = logs.filter((log) => {
@@ -104,6 +105,7 @@ export const ReportsPage: React.FC = () => {
       evidence: evidenceRows,
       auditLog: session.auditLog,
       voiceLog: VOICE_LOG,
+      temporalHARActivity: temporalTimeline,
     };
     const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -160,23 +162,27 @@ export const ReportsPage: React.FC = () => {
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pt-4 text-xs font-mono">
             <div className="p-3 bg-slate-50 border border-gray-200 rounded">
               <span className="text-gray-400 text-[10px] uppercase font-bold block">Run Status</span>
-              <span className="font-bold text-emerald-800 mt-0.5 block">SIMULATED PROTOTYPE RUN</span>
+              <span className="font-bold text-emerald-800 mt-0.5 block">{session.status.toUpperCase()}</span>
             </div>
             <div className="p-3 bg-slate-50 border border-gray-200 rounded">
               <span className="text-gray-400 text-[10px] uppercase font-bold block font-mono">Total Steps</span>
-              <span className="font-bold text-gray-800 mt-0.5 block">10 Steps</span>
+              <span className="font-bold text-gray-800 mt-0.5 block">{session.steps.length} Steps</span>
             </div>
             <div className="p-3 bg-slate-50 border border-gray-200 rounded">
               <span className="text-gray-400 text-[10px] uppercase font-bold block font-mono">Verified Steps</span>
-              <span className="font-bold text-emerald-700 mt-0.5 block">6 Verified</span>
+              <span className="font-bold text-emerald-700 mt-0.5 block">
+                {session.steps.filter((s) => s.status === 'completed').length} Verified
+              </span>
             </div>
             <div className="p-3 bg-slate-50 border border-gray-200 rounded">
               <span className="text-gray-400 text-[10px] uppercase font-bold block font-mono">Deviations</span>
-              <span className="font-bold text-amber-700 mt-0.5 block">1 Out of Sequence</span>
+              <span className="font-bold text-amber-700 mt-0.5 block">
+                {session.steps.filter((s) => s.status === 'wrong').length} Detected
+              </span>
             </div>
             <div className="p-3 bg-slate-50 border border-gray-200 rounded">
-              <span className="text-gray-400 text-[10px] uppercase font-bold block font-mono">Pending Steps</span>
-              <span className="font-bold text-gray-500 mt-0.5 block">3 Pending</span>
+              <span className="text-gray-400 text-[10px] uppercase font-bold block font-mono">Temporal Events</span>
+              <span className="font-bold text-cyan-800 mt-0.5 block">{temporalTimeline.length} Captured</span>
             </div>
           </div>
         </div>
@@ -194,7 +200,17 @@ export const ReportsPage: React.FC = () => {
                   : 'text-gray-600 border-transparent hover:text-gray-900'
               }`}
             >
-              Step Evidence Log ({EXPERIMENT_EVIDENCE.length})
+              Step Evidence Log ({evidenceRows.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('temporal')}
+              className={`px-4 py-2 text-xs font-bold rounded-t-md border-t border-x transition-all ${
+                activeTab === 'temporal'
+                  ? 'bg-white text-[#002244] border-gray-200 border-b-transparent shadow-xs'
+                  : 'text-gray-600 border-transparent hover:text-gray-900'
+              }`}
+            >
+              Temporal HAR Timeline ({temporalTimeline.length})
             </button>
             <button
               onClick={() => setActiveTab('voice')}
@@ -214,9 +230,10 @@ export const ReportsPage: React.FC = () => {
                   : 'text-gray-600 border-transparent hover:text-gray-900'
               }`}
             >
-              System Audit Stream ({filteredLogs.length})
+              System Audit Stream ({session.auditLog.length > 0 ? session.auditLog.length : filteredLogs.length})
             </button>
           </div>
+
 
           <div className="p-6">
             
@@ -281,8 +298,84 @@ export const ReportsPage: React.FC = () => {
               </div>
             )}
 
-            {/* Tab 2: Voice Directives */}
+            {/* Tab 2: Temporal HAR Timeline */}
+            {activeTab === 'temporal' && (
+              <div>
+                <div className="flex items-center justify-between mb-4 font-mono">
+                  <h3 className="text-xs font-bold text-[#002244] uppercase tracking-wider">
+                    Temporal Human Activity Recognition (HAR) Sequence Log
+                  </h3>
+                  <span className="text-[10px] bg-cyan-50 border border-cyan-200 text-cyan-800 px-2 py-0.5 rounded font-bold">
+                    SLIDING WINDOW LOG ({temporalTimeline.length} EVENTS)
+                  </span>
+                </div>
+
+                {temporalTimeline.length === 0 ? (
+                  <div className="py-8 text-center text-gray-400 font-mono text-xs italic bg-slate-50 rounded border border-gray-200">
+                    No temporal activity events logged in this session yet. Start an experiment session or test a scenario in Live Monitor.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left font-mono text-xs">
+                      <thead>
+                        <tr className="border-b border-gray-200 text-gray-400 text-[10px] uppercase">
+                          <th className="py-2.5">TIMESTAMP</th>
+                          <th className="py-2.5">TEMPORAL ACTION</th>
+                          <th className="py-2.5">WINDOW / DURATION</th>
+                          <th className="py-2.5">CONFIDENCE</th>
+                          <th className="py-2.5">STABILITY</th>
+                          <th className="py-2.5">EXPECTED ACTION</th>
+                          <th className="py-2.5 text-right">PROCEDURAL OUTCOME</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {temporalTimeline.map((item) => (
+                          <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="py-3 text-gray-500">{item.timestamp}</td>
+                            <td className="py-3 font-bold text-[#002244]">{item.action}</td>
+                            <td className="py-3 text-gray-600">
+                              {item.windowFrames} frames ({item.windowDurationSec.toFixed(2)}s)
+                            </td>
+                            <td className="py-3 text-gray-700">{item.confidenceDisplay}</td>
+                            <td className="py-3">
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                                item.stability === 'STABLE'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : item.stability === 'AMBIGUOUS'
+                                  ? 'bg-purple-100 text-purple-800'
+                                  : 'bg-slate-100 text-gray-700'
+                              }`}>
+                                {item.stability}
+                              </span>
+                            </td>
+                            <td className="py-3 text-gray-600">{item.expectedAction || '—'}</td>
+                            <td className="py-3 text-right">
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                                  item.procedureOutcome === 'VERIFIED'
+                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                    : item.procedureOutcome === 'WRONG_STEP' || item.procedureOutcome === 'OUT_OF_ORDER'
+                                    ? 'bg-rose-50 text-rose-800 border-rose-200'
+                                    : item.procedureOutcome === 'AMBIGUOUS'
+                                    ? 'bg-purple-50 text-purple-800 border-purple-200'
+                                    : 'bg-gray-100 text-gray-500 border-gray-200'
+                                }`}
+                              >
+                                {item.procedureOutcome}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Tab 3: Voice Directives */}
             {activeTab === 'voice' && (
+
               <div>
                 <h3 className="text-xs font-bold text-[#002244] uppercase tracking-wider font-mono mb-4">
                   Voice Guidance Log

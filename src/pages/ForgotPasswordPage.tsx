@@ -5,7 +5,8 @@
 
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Layers, Mail, Loader2, Info, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { AltronLogo } from '@/components/AltronLogo';
+import { ArrowLeft, Mail, Loader2, Info, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { AuthService } from '@/services/auth/authService';
 
 export const ForgotPasswordPage: React.FC = () => {
@@ -37,13 +38,11 @@ export const ForgotPasswordPage: React.FC = () => {
 
         <div className="px-8 py-8">
           {/* Logo */}
-          <div className="flex items-center gap-2.5 mb-7">
-            <div className="w-8 h-8 rounded-full bg-[#0d2b5e] flex items-center justify-center">
-              <Layers className="w-4 h-4 text-white" />
-            </div>
+          <div className="flex items-center gap-3 mb-7">
+            <AltronLogo size={38} className="w-9 h-9 shrink-0 drop-shadow-[0_2px_8px_rgba(26,111,196,0.3)]" />
             <div>
-              <div className="text-[13px] font-extrabold tracking-widest text-[#0d2b5e] uppercase leading-none">ALTRON</div>
-              <div className="text-[9px] tracking-[0.18em] text-[#1a6fc4] uppercase font-medium">Ground Operations</div>
+              <div className="text-[15px] font-black tracking-[0.2em] text-[#0d2b5e] uppercase leading-none">ALTRON</div>
+              <div className="text-[9px] tracking-[0.18em] text-[#1a6fc4] uppercase font-bold mt-0.5">AI Procedural Intelligence</div>
             </div>
           </div>
 
